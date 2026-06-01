@@ -1,5 +1,7 @@
 <?php
 
+use App\Http\Middleware\ForceJsonResponse;
+use App\Http\Middleware\ValidateJsonBody;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -17,12 +19,25 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // ForceJsonResponse runs in the GLOBAL stack — before route middleware like
+        // auth:sanctum — so an unauthenticated /api request is marked JSON before auth
+        // resolves. Otherwise auth computes the HTML guest-redirect and 500s on the
+        // missing `login` route. The middleware self-scopes to /api/* paths.
+        $middleware->prepend(ForceJsonResponse::class);
+
         $middleware->api(append: [
-            \App\Http\Middleware\ForceJsonResponse::class,
-            \App\Http\Middleware\ValidateJsonBody::class,
+            ValidateJsonBody::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Render every /api/* exception as JSON regardless of the client's Accept
+        // header. Without this, an unauthenticated request lacking `Accept:
+        // application/json` falls through to the HTML login-redirect path and 500s
+        // (no `login` route exists). Keeps the "every API response is JSON" contract.
+        $exceptions->shouldRenderJsonWhen(
+            fn (Request $request, Throwable $e) => $request->is('api/*') || $request->expectsJson()
+        );
+
         $exceptions->render(function (ValidationException $e, Request $request) {
             return response()->json([
                 'error' => 'validation',

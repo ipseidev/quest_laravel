@@ -2,6 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Models\Character;
+use App\Models\Entry;
+use App\Models\EntryAttachment;
+use App\Models\EntryAudio;
+use App\Models\Quest;
 use App\Models\User;
 use App\Services\Auth\AppleTokenVerifier;
 use App\Services\Auth\GoogleTokenVerifier;
@@ -20,6 +25,17 @@ class AuthTest extends TestCase
     private function deviceId(): string
     {
         return (string) Str::uuid();
+    }
+
+    public function test_unauthenticated_api_request_without_json_accept_returns_401_json(): void
+    {
+        // Regression: a protected /api route hit WITHOUT `Accept: application/json`
+        // must still return the 401 JSON envelope, never a 500 (the framework must
+        // not fall through to the HTML login-redirect, which has no `login` route).
+        $response = $this->get('/api/me', ['Accept' => 'text/html']);
+
+        $response->assertStatus(401)
+            ->assertJsonPath('error', 'unauthenticated');
     }
 
     public function test_a1_register_with_valid_email_and_password(): void
@@ -151,11 +167,11 @@ class AuthTest extends TestCase
         $user = User::factory()->create();
         $token = $user->createToken('quest-mobile')->plainTextToken;
 
-        \App\Models\Quest::factory()->for($user)->create();
-        \App\Models\Character::factory()->for($user)->create();
-        $entry = \App\Models\Entry::factory()->for($user)->create();
-        \App\Models\EntryAttachment::factory()->for($entry)->create();
-        \App\Models\EntryAudio::factory()->for($entry)->create();
+        Quest::factory()->for($user)->create();
+        Character::factory()->for($user)->create();
+        $entry = Entry::factory()->for($user)->create();
+        EntryAttachment::factory()->for($entry)->create();
+        EntryAudio::factory()->for($entry)->create();
 
         $this->withHeader('Authorization', 'Bearer '.$token)
             ->deleteJson('/api/me')
