@@ -43,6 +43,7 @@ return [
 
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
+        'ios_client_id' => env('GOOGLE_IOS_CLIENT_ID'),
         'jwks_url' => 'https://www.googleapis.com/oauth2/v3/certs',
         'issuers' => ['https://accounts.google.com', 'accounts.google.com'],
     ],

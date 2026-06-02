@@ -19,10 +19,16 @@ class GoogleTokenVerifier
      */
     public function verify(string $idToken): array
     {
-        $clientId = config('services.google.client_id');
+        // Accept tokens minted for either the web client (the serverClientID the
+        // mobile app passes, which becomes the idToken `aud`) or the native iOS
+        // client id — native Google Sign-In can carry either depending on setup.
+        $clientIds = array_values(array_filter([
+            config('services.google.client_id'),
+            config('services.google.ios_client_id'),
+        ]));
         $issuers = config('services.google.issuers');
 
-        if (empty($clientId)) {
+        if ($clientIds === []) {
             throw new InvalidGoogleTokenException('Google client ID is not configured.');
         }
 
@@ -38,8 +44,12 @@ class GoogleTokenVerifier
         }
 
         $audience = $decoded['aud'] ?? null;
-        if ($audience !== $clientId && (! is_array($audience) || ! in_array($clientId, $audience, true))) {
-            throw new InvalidGoogleTokenException('Google ID token audience mismatch.');
+        $audienceValues = is_array($audience) ? $audience : [$audience];
+        if (array_intersect($audienceValues, $clientIds) === []) {
+            throw new InvalidGoogleTokenException(
+                'Google ID token audience mismatch (aud='.json_encode($audience)
+                .', expected one of ['.implode(', ', $clientIds).']).'
+            );
         }
 
         if (empty($decoded['sub'])) {

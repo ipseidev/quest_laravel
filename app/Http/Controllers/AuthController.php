@@ -17,6 +17,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 
 class AuthController extends Controller
 {
@@ -66,7 +67,9 @@ class AuthController extends Controller
     {
         try {
             $claims = $verifier->verify($request->validated('identityToken'));
-        } catch (InvalidAppleTokenException) {
+        } catch (InvalidAppleTokenException $e) {
+            Log::warning('auth.apple.token_rejected', ['reason' => $e->getMessage()]);
+
             return response()->json([
                 'error' => 'invalid_apple_token',
                 'message' => 'The Apple identity token is invalid.',
@@ -107,7 +110,9 @@ class AuthController extends Controller
     {
         try {
             $claims = $verifier->verify($request->validated('idToken'));
-        } catch (InvalidGoogleTokenException) {
+        } catch (InvalidGoogleTokenException $e) {
+            Log::warning('auth.google.token_rejected', ['reason' => $e->getMessage()]);
+
             return response()->json([
                 'error' => 'invalid_google_token',
                 'message' => 'The Google ID token is invalid.',
