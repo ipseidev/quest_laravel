@@ -22,6 +22,11 @@ class LegalController extends Controller
         return view('legal.terms', ['lang' => $this->resolveLocale($request)]);
     }
 
+    public function support(Request $request): View
+    {
+        return view('legal.support', ['lang' => $this->resolveLocale($request)]);
+    }
+
     /**
      * Resolve the display language: an explicit `?lang=` query wins, else the
      * caller's Accept-Language (the in-app browser reflects the device locale),

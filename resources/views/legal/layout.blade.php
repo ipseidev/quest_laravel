@@ -98,6 +98,7 @@
             <nav>
                 <a href="{{ route('legal.privacy', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Confidentialité' : 'Privacy' }}</a>
                 <a href="{{ route('legal.terms', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Conditions' : 'Terms' }}</a>
+                <a href="{{ route('legal.support', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Aide' : 'Support' }}</a>
                 <span class="lang">
                     <a href="?lang=en">EN</a> · <a href="?lang=fr">FR</a>
                 </span>
@@ -111,7 +112,7 @@
                 {{ $lang === 'fr'
                     ? 'Quest — un journal où ta vie devient une histoire. Contact : '
                     : 'Quest — a journal where your life becomes a story. Contact: ' }}
-                <a href="mailto:ns@theresidency.io">ns@theresidency.io</a>
+                <a href="mailto:contact@affiniteam.io">contact@affiniteam.io</a>
             </p>
         </footer>
     </main>
