@@ -122,7 +122,7 @@ For 422 validation:
   "deviceId": "<uuid v4>",
   "changes": [
     {
-      "entityType": "entry|quest|character|entry_quest|entry_character|entry_attachment|entry_audio",
+      "entityType": "entry|quest|character|quote|entry_quest|entry_character|entry_attachment|entry_audio",
       "entityId": "<uuid>" | "<entryId>:<questId>" | "<entryId>:<characterId>",
       "operation": "create|update|delete",
       "data": { /* §8.4 shape, exactly */ }
@@ -194,13 +194,14 @@ For 422 validation:
 - **Ordering (§8.7) — guaranteed**:
   1. `quest` upserts
   2. `character` upserts
-  3. `entry` upserts
-  4. `entry_attachment` upserts
-  5. `entry_audio` upserts
-  6. `entry_quest` upserts
-  7. `entry_quest` deletes (tombstones)
-  8. `entry_character` upserts
-  9. `entry_character` deletes (tombstones)
+  3. `quote` upserts
+  4. `entry` upserts
+  5. `entry_attachment` upserts
+  6. `entry_audio` upserts
+  7. `entry_quest` upserts
+  8. `entry_quest` deletes (tombstones)
+  9. `entry_character` upserts
+  10. `entry_character` deletes (tombstones)
 - `serverTimestamp` is the server's `now()` captured at the start of the request — store and feed back as `lastPullTimestamp` next call.
 - `syncedAt: null` always emitted in payloads (client overrides locally).
 - All entity payload shapes match §8.4 verbatim.
@@ -276,6 +277,7 @@ Encrypted columns (Laravel `encrypted` cast, `text` type in PG):
 | `entries` | `title`, `html` |
 | `quests` | `title`, `description` |
 | `characters` | `name`, `relationship`, `note` |
+| `quotes` | `text`, `source`, `note` |
 
 Decryption is transparent on read — pull responses contain plaintext. Database dumps would expose only ciphertext (prefix `eyJ...` — Laravel envelope format).
 
@@ -297,7 +299,7 @@ Decryption is transparent on read — pull responses contain plaintext. Database
 
 Artisan command: `php artisan quest:purge-expired`, scheduled daily at 03:00 UTC.
 
-- Soft-deleted content (`is_deleted=true`) with `updated_at < now() - 30 days` is hard-deleted. CASCADE handles child rows (junctions, attachments under entries).
+- Soft-deleted content (`is_deleted=true`) with `updated_at < now() - 30 days` is hard-deleted (entries, quests, characters, quotes, attachments, audio). CASCADE handles child rows (junctions, attachments under entries).
 - Associated S3 binaries are deleted before the row goes.
 - Junction tombstones with `deleted_at < now() - 90 days` are hard-deleted.
 - Stats logged via `Log::info('quest.retention.purge', $stats)` for observability.
@@ -312,6 +314,7 @@ All scenarios in the spec's acceptance matrix pass:
 |---|---|---|
 | §13.1 Auth | A1–A13 | ✓ |
 | §13.2 Sync basics | S1–S6 | ✓ |
+| §13.11 Sync quotes | Q1–Q6 | ✓ |
 | §13.3 Junctions | J1–J5 | ✓ |
 | §13.4 Binaries | B1–B9 | ✓ |
 | §13.5 Encryption | E1–E3 | ✓ |

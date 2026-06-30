@@ -29,7 +29,7 @@ Outside Sail, the equivalents are `php artisan ...`. After modifying PHP files, 
 
 ### API surface (`routes/api.php`)
 
-All routes are under `/api`. Public routes: `auth/password/{register,login}`, `auth/apple`, `auth/google`. Everything else is behind `auth:sanctum`. The two sync endpoints (`/sync/push`, `/sync/pull`) additionally pass through `throttle:sync` (60 req/min/user, configurable via `QUEST_RATE_LIMIT_SYNC`). Binary uploads land at `/uploads/{attachments,audio,character-photos}/{id}`.
+All routes are under `/api`. Public routes: `auth/password/{register,login}`, `auth/apple`, `auth/google`. Everything else is behind `auth:sanctum`. Authenticated identity routes: `POST /auth/logout` (revoke current token), `GET /me` (current user), `DELETE /me` (delete account + all tokens, cascades content). The two sync endpoints (`/sync/push`, `/sync/pull`) additionally pass through `throttle:sync` (60 req/min/user, configurable via `QUEST_RATE_LIMIT_SYNC`). Binary uploads land at `/uploads/{attachments,audio,character-photos}/{id}`.
 
 The api middleware stack appends `ForceJsonResponse` (every response is JSON regardless of Accept) and `ValidateJsonBody` (malformed JSON → 400 `bad_request`). Exception renderers in `bootstrap/app.php` translate validation, auth, 404, and bad-request errors into the spec's `{error, message, fields?}` envelope.
 
@@ -63,7 +63,7 @@ When converting between ISO 8601 (with the trailing `Z` and ms) and DB datetimes
 
 ### Encryption at rest
 
-Title/body/description/name/relationship/note columns on `entries`, `quests`, `characters` use Laravel's `encrypted` cast (stored as `text`). Decryption is transparent on read. The same `APP_KEY` encrypts every user's data — this is server-readable, not E2E, and was an intentional product decision (supports future AI features and key recovery). `APP_KEY` must be backed up separately from DB backups.
+Title/html/description/name/relationship/note columns on `entries`, `quests`, `characters` use Laravel's `encrypted` cast (stored as `text`). Decryption is transparent on read. The same `APP_KEY` encrypts every user's data — this is server-readable, not E2E, and was an intentional product decision (supports future AI features and key recovery). `APP_KEY` must be backed up separately from DB backups.
 
 ### Junction tombstones
 
@@ -86,6 +86,7 @@ Uploads tests use `Storage::fake('s3')`. Don't mock at the service layer — the
 - API Resources have `public static $wrap = null` — responses are not wrapped in `{data: ...}`. Match that on any new resource.
 - DB columns are `snake_case`; JSON payloads are `camelCase`. API Resources do the mapping. Don't add camelCase columns.
 - `/up` is the health endpoint at the root (outside `/api`), provided by Laravel via `bootstrap/app.php`'s `health: '/up'`.
+- `routes/web.php` also serves three public legal Blade pages outside `/api` via `LegalController`: `/privacy`, `/terms`, `/support` (the App Store / Play Store require them; en/fr locale resolved from `?lang=` or `Accept-Language`).
 
 <laravel-boost-guidelines>
 === foundation rules ===

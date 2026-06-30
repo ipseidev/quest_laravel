@@ -17,7 +17,7 @@ class SyncPushRequest extends FormRequest
             'deviceId' => ['required', 'uuid'],
             'changes' => ['present', 'array'],
             'changes.*' => ['array'],
-            'changes.*.entityType' => ['required', 'in:entry,quest,character,entry_quest,entry_character,entry_attachment,entry_audio'],
+            'changes.*.entityType' => ['required', 'in:entry,quest,character,quote,entry_quest,entry_character,entry_attachment,entry_audio'],
             'changes.*.entityId' => ['required', 'string'],
             'changes.*.operation' => ['required', 'in:create,update,delete'],
             'changes.*.data' => ['required', 'array'],

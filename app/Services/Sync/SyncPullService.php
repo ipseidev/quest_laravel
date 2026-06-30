@@ -7,11 +7,13 @@ use App\Http\Resources\EntryAttachmentResource;
 use App\Http\Resources\EntryAudioResource;
 use App\Http\Resources\EntryResource;
 use App\Http\Resources\QuestResource;
+use App\Http\Resources\QuoteResource;
 use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
 use App\Models\Quest;
+use App\Models\Quote;
 use App\Models\User;
 use App\Support\IsoDate;
 use Illuminate\Support\Carbon;
@@ -46,7 +48,16 @@ class SyncPullService
             ];
         }
 
-        // 3. Entries
+        // 3. Quotes
+        foreach ($this->quotes($user, $lastPullTimestamp) as $quote) {
+            $changes[] = [
+                'entityType' => 'quote',
+                'operation' => 'upsert',
+                'data' => QuoteResource::serialize($quote),
+            ];
+        }
+
+        // 4. Entries
         foreach ($this->entries($user, $lastPullTimestamp) as $entry) {
             $changes[] = [
                 'entityType' => 'entry',
@@ -55,7 +66,7 @@ class SyncPullService
             ];
         }
 
-        // 4. Entry attachments
+        // 5. Entry attachments
         foreach ($this->entryAttachments($user, $lastPullTimestamp) as $attachment) {
             $changes[] = [
                 'entityType' => 'entry_attachment',
@@ -64,7 +75,7 @@ class SyncPullService
             ];
         }
 
-        // 5. Entry audio
+        // 6. Entry audio
         foreach ($this->entryAudio($user, $lastPullTimestamp) as $audio) {
             $changes[] = [
                 'entityType' => 'entry_audio',
@@ -73,7 +84,7 @@ class SyncPullService
             ];
         }
 
-        // 6. entry_quest upserts
+        // 7. entry_quest upserts
         foreach ($this->junctionRows('entry_quests', 'quest_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_quest',
@@ -82,7 +93,7 @@ class SyncPullService
             ];
         }
 
-        // 7. entry_quest tombstones
+        // 8. entry_quest tombstones
         foreach ($this->tombstoneRows('entry_quest_tombstones', 'quest_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_quest',
@@ -91,7 +102,7 @@ class SyncPullService
             ];
         }
 
-        // 8. entry_character upserts
+        // 9. entry_character upserts
         foreach ($this->junctionRows('entry_characters', 'character_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_character',
@@ -100,7 +111,7 @@ class SyncPullService
             ];
         }
 
-        // 9. entry_character tombstones
+        // 10. entry_character tombstones
         foreach ($this->tombstoneRows('entry_character_tombstones', 'character_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_character',
@@ -127,6 +138,15 @@ class SyncPullService
     private function characters(User $user, ?Carbon $since)
     {
         return Character::query()
+            ->where('user_id', $user->id)
+            ->when($since, fn ($q) => $q->where('updated_at', '>', $since))
+            ->orderBy('updated_at')
+            ->get();
+    }
+
+    private function quotes(User $user, ?Carbon $since)
+    {
+        return Quote::query()
             ->where('user_id', $user->id)
             ->when($since, fn ($q) => $q->where('updated_at', '>', $since))
             ->orderBy('updated_at')

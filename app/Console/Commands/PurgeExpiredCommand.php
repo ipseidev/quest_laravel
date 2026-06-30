@@ -7,6 +7,7 @@ use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
 use App\Models\Quest;
+use App\Models\Quote;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,7 @@ class PurgeExpiredCommand extends Command
             'characters_purged' => 0,
             'entries_purged' => 0,
             'quests_purged' => 0,
+            'quotes_purged' => 0,
             's3_files_deleted' => 0,
             'entry_quest_tombstones_purged' => 0,
             'entry_character_tombstones_purged' => 0,
@@ -106,7 +108,13 @@ class PurgeExpiredCommand extends Command
             ->where('updated_at', '<', $contentCutoff)
             ->delete();
 
-        // 6. Tombstones older than 90 days.
+        // 6. Soft-deleted quotes (standalone, no binary).
+        $stats['quotes_purged'] = Quote::query()
+            ->where('is_deleted', true)
+            ->where('updated_at', '<', $contentCutoff)
+            ->delete();
+
+        // 7. Tombstones older than 90 days.
         $stats['entry_quest_tombstones_purged'] = DB::table('entry_quest_tombstones')
             ->where('deleted_at', '<', $tombstoneCutoff)
             ->delete();

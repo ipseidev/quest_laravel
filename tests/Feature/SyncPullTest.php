@@ -2,10 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
-use App\Models\Quest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -387,5 +385,68 @@ class SyncPullTest extends TestCase
             'deviceId' => (string) Str::uuid(),
             'lastPullTimestamp' => null,
         ])->assertStatus(401);
+    }
+
+    public function test_quote_round_trips_through_pull(): void
+    {
+        $id = (string) Str::uuid();
+
+        $this->push([[
+            'entityType' => 'quote',
+            'entityId' => $id,
+            'operation' => 'create',
+            'data' => [
+                'id' => $id,
+                'text' => 'Pull me',
+                'source' => 'A book',
+                'note' => 'note',
+                'isDeleted' => false,
+                'createdAt' => '2026-05-13T10:00:00.000Z',
+                'updatedAt' => '2026-05-13T10:00:00.000Z',
+                'syncedAt' => null,
+            ],
+        ]])->assertOk();
+
+        $changes = $this->pull()->assertOk()->json('changes');
+        $quote = collect($changes)->firstWhere('entityType', 'quote');
+
+        $this->assertNotNull($quote);
+        $this->assertSame('upsert', $quote['operation']);
+        $this->assertSame($id, $quote['data']['id']);
+        $this->assertSame('Pull me', $quote['data']['text']);
+        $this->assertSame('A book', $quote['data']['source']);
+        $this->assertSame('note', $quote['data']['note']);
+        $this->assertNull($quote['data']['syncedAt']);
+    }
+
+    public function test_quote_is_emitted_before_entries_in_pull_order(): void
+    {
+        $quoteId = (string) Str::uuid();
+        $entryId = (string) Str::uuid();
+
+        $this->push([
+            $this->entryChange($entryId),
+            [
+                'entityType' => 'quote',
+                'entityId' => $quoteId,
+                'operation' => 'create',
+                'data' => [
+                    'id' => $quoteId,
+                    'text' => 'Q',
+                    'source' => null,
+                    'note' => '',
+                    'isDeleted' => false,
+                    'createdAt' => '2026-05-13T10:00:00.000Z',
+                    'updatedAt' => '2026-05-13T10:00:00.000Z',
+                    'syncedAt' => null,
+                ],
+            ],
+        ])->assertOk();
+
+        $types = array_column($this->pull()->json('changes'), 'entityType');
+        $this->assertLessThan(
+            array_search('entry', $types, true),
+            array_search('quote', $types, true),
+        );
     }
 }

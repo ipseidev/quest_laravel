@@ -18,6 +18,7 @@ class SchemaTest extends TestCase
             'entries',
             'quests',
             'characters',
+            'quotes',
             'entry_quests',
             'entry_characters',
             'entry_attachments',

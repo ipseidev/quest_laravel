@@ -7,6 +7,7 @@ use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
 use App\Models\Quest;
+use App\Models\Quote;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -122,6 +123,30 @@ class RetentionTest extends TestCase
         $this->assertDatabaseMissing('entries', ['id' => $oldEntry->id]);
         $this->assertDatabaseMissing('entry_audio', ['id' => $oldAudio->id]);
         $this->assertDatabaseHas('entries', ['id' => $recentEntry->id]);
+    }
+
+    public function test_quote_soft_deleted_more_than_30_days_is_purged(): void
+    {
+        $user = User::factory()->create();
+        $quote = Quote::factory()->for($user)->create(['is_deleted' => true]);
+
+        $this->setUpdatedAt($quote, now()->subDays(31));
+
+        Artisan::call('quest:purge-expired');
+
+        $this->assertDatabaseMissing('quotes', ['id' => $quote->id]);
+    }
+
+    public function test_quote_soft_deleted_less_than_30_days_is_kept(): void
+    {
+        $user = User::factory()->create();
+        $quote = Quote::factory()->for($user)->create(['is_deleted' => true]);
+
+        $this->setUpdatedAt($quote, now()->subDays(29));
+
+        Artisan::call('quest:purge-expired');
+
+        $this->assertDatabaseHas('quotes', ['id' => $quote->id]);
     }
 
     public function test_purge_skips_active_content_even_when_old(): void

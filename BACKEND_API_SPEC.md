@@ -261,6 +261,23 @@ The server does NOT track per-device sync state. The `deviceId` in sync requests
 
 The server-side equivalent of "have I been synced" is implicit: if a row exists in the table for this user, it has been pushed.
 
+### 4.13 `quotes`
+
+Standalone content entity (a saved quote / citation that struck the user). Independent: **no foreign keys** to other content, **no junction**, **no binary**. Manually created.
+
+| Column | Type | Nullable | Notes |
+|---|---|---|---|
+| `id` | UUID | no | Client-generated |
+| `user_id` | UUID | no | FK CASCADE |
+| `text` | text | no | **Encrypted**. The quote itself. Empty string allowed. |
+| `source` | text | yes | **Encrypted**. Where it came from / attribution (e.g. a name, `TikTok`, a book title). |
+| `note` | text | no | **Encrypted**. What it evokes to the user. Default empty string. |
+| `is_deleted` | boolean | no | Default false |
+| `created_at` | timestamp | no | |
+| `updated_at` | timestamp | no | |
+
+**Indexes**: `user_id, is_deleted, updated_at DESC`.
+
 ---
 
 ## 5. Encryption
@@ -274,6 +291,7 @@ Use Laravel's native `encrypted` cast (`$casts = ['title' => 'encrypted', ...]`)
 | `entries` | `title`, `html` |
 | `quests` | `title`, `description` |
 | `characters` | `name`, `relationship`, `note` |
+| `quotes` | `text`, `source`, `note` |
 
 Everything else is plaintext. Specifically: `mood`, `latitude`, `longitude`, `entry_date`, `status`, `type`, `color`, `icon`, timestamps, IDs, foreign keys, `width`, `height`, `duration_ms`, `waveform`, `is_deleted` — all plaintext.
 
@@ -629,7 +647,7 @@ Two endpoints, both POST, both authenticated. The client calls them in this orde
 
 | Field | Type | Values |
 |---|---|---|
-| `entityType` | string | `entry`, `quest`, `character`, `entry_quest`, `entry_character`, `entry_attachment`, `entry_audio` |
+| `entityType` | string | `entry`, `quest`, `character`, `quote`, `entry_quest`, `entry_character`, `entry_attachment`, `entry_audio` |
 | `entityId` | string | UUID for entities, `"<entryId>:<questId>"` or `"<entryId>:<characterId>"` for junctions |
 | `operation` | string | `create`, `update`, `delete`. The client's queue dedup may collapse these — see §8.3. |
 | `data` | object | The full entity payload — see §8.4 |
@@ -651,7 +669,7 @@ Two endpoints, both POST, both authenticated. The client calls them in this orde
 
 **`confirmed`**: every entityId that the server successfully accepted (created, updated, or marked deleted). Junction IDs use the `<entryId>:<questId>` composite form.
 
-**`conflicts`**: entities where the server's existing `updatedAt` is **strictly greater** than the client's pushed `updatedAt`. Server kept its version; client must adopt it. Only entries / quests / characters / entry_attachments / entry_audio can conflict — junctions never conflict (they exist or they don't).
+**`conflicts`**: entities where the server's existing `updatedAt` is **strictly greater** than the client's pushed `updatedAt`. Server kept its version; client must adopt it. Only entries / quests / characters / quotes / entry_attachments / entry_audio can conflict — junctions never conflict (they exist or they don't).
 
 **Error response shape on conflict**: do NOT return 409. Return 200 with the conflicts in the body. The client treats conflicts as expected outcomes, not errors.
 
@@ -661,7 +679,7 @@ Process each change in array order. For each:
 
 1. **Verify ownership**: the entity must belong (directly or transitively) to the authenticated user. If not, **silently skip** (do NOT 403 — the client may be replaying stale state; isolate cross-user contamination at the server). Do NOT include the skipped id in `confirmed`.
 
-2. **For content entities (`entry`, `quest`, `character`, `entry_attachment`, `entry_audio`)**:
+2. **For content entities (`entry`, `quest`, `character`, `quote`, `entry_attachment`, `entry_audio`)**:
    - Look up the existing row by `id`.
    - If the existing row's `updated_at` is **strictly greater** than the incoming `data.updatedAt`: this is a conflict. Append to `conflicts` with the server's full current payload. Do NOT add to `confirmed`. Continue to next change.
    - Otherwise: upsert. Replace every column with the incoming data. **Important field handling**:
@@ -799,6 +817,23 @@ Note: the current client's `Character` type does not have `remotePhotoUri`. When
 }
 ```
 
+#### 8.4.8 Quote
+
+```json
+{
+  "id": "string (UUID)",
+  "text": "string",
+  "source": "string | null",
+  "note": "string",
+  "isDeleted": "boolean",
+  "createdAt": "string (ISO 8601)",
+  "updatedAt": "string (ISO 8601)",
+  "syncedAt": "string | null"
+}
+```
+
+A quote is a standalone content entity: no `entryId`, no foreign keys, no binary `uri`. It conflicts and soft-deletes exactly like an entry/quest/character.
+
 ### 8.5 `POST /sync/pull`
 
 **Authentication**: required.
@@ -842,7 +877,7 @@ Note: the current client's `Character` type does not have `remotePhotoUri`. When
 For each table belonging to this user:
 
 1. Select all rows where (`lastPullTimestamp == null` OR `updated_at > lastPullTimestamp`).
-2. For content tables (`entries`, `quests`, `characters`, `entry_attachments`, `entry_audio`): emit each row as `{ entityType: <type>, operation: 'upsert', data: <row payload> }`. **Never emit `operation: 'delete'` for content** — the soft-delete is encoded in the `data.isDeleted` field. The client treats `operation: 'delete'` as a no-op for content (it's reserved for junctions).
+2. For content tables (`entries`, `quests`, `characters`, `quotes`, `entry_attachments`, `entry_audio`): emit each row as `{ entityType: <type>, operation: 'upsert', data: <row payload> }`. **Never emit `operation: 'delete'` for content** — the soft-delete is encoded in the `data.isDeleted` field. The client treats `operation: 'delete'` as a no-op for content (it's reserved for junctions).
 3. For junction tables (`entry_quests`, `entry_characters`):
    - Existing rows → `{ entityType, operation: 'upsert', data: <link> }`.
    - To communicate a junction removal, the server needs a tombstone trail. Two options — pick one:
@@ -856,13 +891,14 @@ The client's `applyPullChange` doesn't reorder — it processes the array in the
 
 1. `quest` rows
 2. `character` rows
-3. `entry` rows
-4. `entry_attachment` rows
-5. `entry_audio` rows
-6. `entry_quest` rows (upserts)
-7. `entry_quest` deletions (tombstones)
-8. `entry_character` rows (upserts)
-9. `entry_character` deletions (tombstones)
+3. `quote` rows
+4. `entry` rows
+5. `entry_attachment` rows
+6. `entry_audio` rows
+7. `entry_quest` rows (upserts)
+8. `entry_quest` deletions (tombstones)
+9. `entry_character` rows (upserts)
+10. `entry_character` deletions (tombstones)
 
 Within each group, ordering is irrelevant.
 
@@ -1028,7 +1064,7 @@ Do NOT error.
 
 A daily scheduled command (`php artisan schedule:run` via cron):
 
-1. For each soft-deleted content entity (`entries`, `quests`, `characters`, `entry_attachments`, `entry_audio`): if `updated_at < now() - 30 days`, hard-delete the row.
+1. For each soft-deleted content entity (`entries`, `quests`, `characters`, `quotes`, `entry_attachments`, `entry_audio`): if `updated_at < now() - 30 days`, hard-delete the row.
 2. CASCADE deletes handle child rows (junctions, attachments under entries).
 3. Delete associated binaries from S3.
 4. For junction tombstones (§8.6): if `deleted_at < now() - 90 days`, hard-delete.
@@ -1070,7 +1106,7 @@ Quick reference for fields and values the client emits / expects. If you find yo
 
 ### 12.3 Entity types in sync
 
-- `entry`, `quest`, `character`, `entry_quest`, `entry_character`, `entry_attachment`, `entry_audio`.
+- `entry`, `quest`, `character`, `quote`, `entry_quest`, `entry_character`, `entry_attachment`, `entry_audio`.
 
 ### 12.4 Operations in sync push
 
@@ -1083,7 +1119,7 @@ Quick reference for fields and values the client emits / expects. If you find yo
 
 ### 12.6 Conflict entity types
 
-Only content entities can conflict: `entry`, `quest`, `character`, `entry_attachment`, `entry_audio`. Junctions never conflict.
+Only content entities can conflict: `entry`, `quest`, `character`, `quote`, `entry_attachment`, `entry_audio`. Junctions never conflict.
 
 ### 12.7 Required vs optional fields
 
@@ -1199,6 +1235,17 @@ These exercise the client's `auth-sync-bridge`. The backend's role: provide the 
 | I2 | Client sends a malformed JSON body. | 400 `bad_request`. No partial state changes. |
 | I3 | Client hits `/sync/push` 100 times/minute. | After 60 requests, 429 `rate_limited` with `Retry-After: 60`. |
 
+### 13.11 Sync — quotes (standalone content entity)
+
+| # | Scenario | Expected |
+|---|---|---|
+| Q1 | Push 1 quote to empty server | 200, `confirmed: [id]`, conflicts: []. Server has the row. |
+| Q2 | Push the same quote twice | Second push: 200, `confirmed: [id]`. Idempotent. |
+| Q3 | Push a quote with an older `updatedAt` than server's | 200, that quote in `conflicts` with `serverVersion`. Server stays at its version. |
+| Q4 | Push a soft-deleted quote (`isDeleted: true`). Device B pulls. | B sees the quote with `isDeleted: true`. |
+| Q5 | `text`, `source`, `note` are encrypted at rest | DB-level inspection: ciphertext (`eyJ...`). |
+| Q6 | User B's token pushes an update for User A's quote id | Silently skipped; not in B's `confirmed`; A's quote unchanged. |
+
 ---
 
 ## 14. Out of scope for V1 (do NOT implement)
@@ -1227,14 +1274,14 @@ A linear order in which to build. Each step has acceptance tests under §13 refe
 
 1. **Project setup**: Laravel 11+, PostgreSQL, Sanctum, Socialite (+ Apple provider). Configure `APP_KEY`, S3 driver (or local for dev). [no tests yet]
 2. **Database migrations**: every table from §4. Each migration is one logical change. [A test that hits `\Schema::hasTable` for every required table.]
-3. **Models + casts + relationships**: `User`, `Entry`, `Quest`, `Character`, `Attachment`, `AudioNote` + the two junction pivot configurations. Apply `encrypted` casts per §5.1. Test E1, E3.
+3. **Models + casts + relationships**: `User`, `Entry`, `Quest`, `Character`, `Quote`, `Attachment`, `AudioNote` + the two junction pivot configurations. Apply `encrypted` casts per §5.1. Test E1, E3, Q5.
 4. **Auth: password register + login + logout**: A1–A5, A11, A12.
 5. **Auth: `GET /me`, `DELETE /me`**: A10, A13.
 6. **Auth: Apple + Google**: A6–A9.
-7. **Sync push (no junctions, no binaries yet)**: S1, S2, S4, S5, S6.
+7. **Sync push (no junctions, no binaries yet)**: S1, S2, S4, S5, S6, Q1–Q3, Q6.
 8. **Sync push: junctions**: J1, J2, J3.
 9. **Sync push: binaries (metadata only)**: B1, B2.
-10. **Sync pull**: S3, J4, J5, B7, B8, E2.
+10. **Sync pull**: S3, J4, J5, B7, B8, E2, Q4.
 11. **Conflicts**: L1, L2, L3.
 12. **Cross-user isolation middleware / scopes**: X1–X4.
 13. **Binary upload endpoints**: B3–B6, B9.

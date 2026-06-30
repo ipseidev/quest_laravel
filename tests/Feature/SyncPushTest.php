@@ -7,6 +7,7 @@ use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
 use App\Models\Quest;
+use App\Models\Quote;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -89,6 +90,25 @@ class SyncPushTest extends TestCase
             'entityId' => $entryId.':'.$otherId,
             'operation' => $operation,
             'data' => ['entryId' => $entryId, $otherKey => $otherId],
+        ];
+    }
+
+    private function quoteChange(string $id, array $overrides = [], string $operation = 'create'): array
+    {
+        return [
+            'entityType' => 'quote',
+            'entityId' => $id,
+            'operation' => $operation,
+            'data' => array_merge([
+                'id' => $id,
+                'text' => 'Be the change',
+                'source' => 'Gandhi',
+                'note' => '',
+                'isDeleted' => false,
+                'createdAt' => '2026-05-13T10:00:00.000Z',
+                'updatedAt' => '2026-05-13T10:00:00.000Z',
+                'syncedAt' => null,
+            ], $overrides),
         ];
     }
 
@@ -367,5 +387,92 @@ class SyncPushTest extends TestCase
             ->assertExactJson(['confirmed' => [], 'conflicts' => []]);
 
         $this->assertDatabaseCount('entry_quests', 0);
+    }
+
+    public function test_q1_push_single_quote_to_empty_server(): void
+    {
+        $id = (string) Str::uuid();
+
+        $this->push([$this->quoteChange($id, ['text' => 'Hello world', 'source' => 'TikTok'])])
+            ->assertOk()
+            ->assertExactJson(['confirmed' => [$id], 'conflicts' => []]);
+
+        $quote = Quote::query()->find($id);
+        $this->assertSame($this->user->id, $quote->user_id);
+        $this->assertSame('Hello world', $quote->text);
+        $this->assertSame('TikTok', $quote->source);
+    }
+
+    public function test_q1_push_quote_with_null_source(): void
+    {
+        $id = (string) Str::uuid();
+
+        $this->push([$this->quoteChange($id, ['source' => null])])
+            ->assertOk()
+            ->assertJsonCount(1, 'confirmed');
+
+        $this->assertNull(Quote::query()->find($id)->source);
+    }
+
+    public function test_q2_push_same_quote_twice_is_idempotent(): void
+    {
+        $id = (string) Str::uuid();
+        $change = $this->quoteChange($id);
+
+        $this->push([$change])->assertOk();
+        $this->push([$change])
+            ->assertOk()
+            ->assertJsonCount(1, 'confirmed')
+            ->assertJsonCount(0, 'conflicts');
+
+        $this->assertDatabaseCount('quotes', 1);
+    }
+
+    public function test_q3_push_quote_with_older_updated_at_returns_conflict(): void
+    {
+        $id = (string) Str::uuid();
+
+        $this->push([$this->quoteChange($id, ['text' => 'server v', 'updatedAt' => '2026-05-13T10:00:00.000Z'])])
+            ->assertOk();
+
+        $this->push([$this->quoteChange($id, ['text' => 'older client v', 'updatedAt' => '2026-05-13T09:00:00.000Z'])])
+            ->assertOk()
+            ->assertJsonCount(0, 'confirmed')
+            ->assertJsonCount(1, 'conflicts')
+            ->assertJsonPath('conflicts.0.entityType', 'quote')
+            ->assertJsonPath('conflicts.0.entityId', $id)
+            ->assertJsonPath('conflicts.0.serverVersion.text', 'server v');
+
+        $this->assertSame('server v', Quote::query()->find($id)->text);
+    }
+
+    public function test_q4_soft_delete_quote_marks_is_deleted(): void
+    {
+        $id = (string) Str::uuid();
+        $this->push([$this->quoteChange($id)])->assertOk();
+
+        $this->push([
+            $this->quoteChange($id, ['isDeleted' => true, 'updatedAt' => '2026-05-13T11:00:00.000Z'], 'delete'),
+        ])->assertOk()->assertJsonCount(1, 'confirmed');
+
+        $this->assertTrue(Quote::query()->find($id)->is_deleted);
+    }
+
+    public function test_q6_cross_user_isolation_silently_skips_foreign_quote(): void
+    {
+        $userA = User::factory()->create();
+        $quoteA = Quote::factory()->for($userA)->create(['text' => 'A original']);
+
+        $this->push([
+            $this->quoteChange($quoteA->id, [
+                'text' => 'B attempted overwrite',
+                'updatedAt' => '2030-01-01T00:00:00.000Z', // strictly newer
+            ]),
+        ])
+            ->assertOk()
+            ->assertExactJson(['confirmed' => [], 'conflicts' => []]);
+
+        $quoteA->refresh();
+        $this->assertSame('A original', $quoteA->text);
     }
 }

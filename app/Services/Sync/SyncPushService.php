@@ -7,11 +7,13 @@ use App\Http\Resources\EntryAttachmentResource;
 use App\Http\Resources\EntryAudioResource;
 use App\Http\Resources\EntryResource;
 use App\Http\Resources\QuestResource;
+use App\Http\Resources\QuoteResource;
 use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
 use App\Models\Quest;
+use App\Models\Quote;
 use App\Models\User;
 use App\Support\IsoDate;
 use Illuminate\Support\Facades\DB;
@@ -22,6 +24,7 @@ class SyncPushService
         'entry' => 1,
         'quest' => 1,
         'character' => 1,
+        'quote' => 1,
         'entry_attachment' => 2,
         'entry_audio' => 2,
         'entry_quest' => 3,
@@ -65,6 +68,7 @@ class SyncPushService
             'entry' => $this->handleEntry($user, $change),
             'quest' => $this->handleQuest($user, $change),
             'character' => $this->handleCharacter($user, $change),
+            'quote' => $this->handleQuote($user, $change),
             'entry_attachment' => $this->handleEntryAttachment($user, $change),
             'entry_audio' => $this->handleEntryAudio($user, $change),
             'entry_quest' => $this->handleEntryQuest($user, $change),
@@ -203,6 +207,47 @@ class SyncPushService
         ]);
         $character->timestamps = false;
         $character->save();
+
+        return ['kind' => 'confirmed'];
+    }
+
+    private function handleQuote(User $user, array $change): array
+    {
+        $data = $change['data'];
+        $id = $data['id'] ?? null;
+        $incomingUpdatedAt = IsoDate::parse($data['updatedAt'] ?? null);
+
+        if (! $id || ! $incomingUpdatedAt) {
+            return ['kind' => 'skipped'];
+        }
+
+        $existing = Quote::query()->withoutGlobalScopes()->find($id);
+
+        if ($existing !== null && $existing->user_id !== $user->id) {
+            return ['kind' => 'skipped'];
+        }
+
+        if ($existing !== null && $existing->updated_at->greaterThan($incomingUpdatedAt)) {
+            return ['kind' => 'conflict', 'payload' => [
+                'entityType' => 'quote',
+                'entityId' => $id,
+                'serverVersion' => QuoteResource::serialize($existing),
+            ]];
+        }
+
+        $quote = $existing ?? new Quote;
+        $quote->forceFill([
+            'id' => $id,
+            'user_id' => $user->id,
+            'text' => $data['text'] ?? '',
+            'source' => $data['source'] ?? null,
+            'note' => $data['note'] ?? '',
+            'is_deleted' => $data['isDeleted'] ?? false,
+            'created_at' => IsoDate::parse($data['createdAt'] ?? null) ?? $incomingUpdatedAt,
+            'updated_at' => $incomingUpdatedAt,
+        ]);
+        $quote->timestamps = false;
+        $quote->save();
 
         return ['kind' => 'confirmed'];
     }

@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Character;
 use App\Models\Entry;
+use App\Models\Quest;
+use App\Models\Quote;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -68,7 +71,7 @@ class EncryptionTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $quest = \App\Models\Quest::factory()->create([
+        $quest = Quest::factory()->create([
             'user_id' => $user->id,
             'title' => 'Run a marathon',
             'description' => 'My private reason',
@@ -85,7 +88,7 @@ class EncryptionTest extends TestCase
     {
         $user = User::factory()->create();
 
-        $character = \App\Models\Character::factory()->create([
+        $character = Character::factory()->create([
             'user_id' => $user->id,
             'name' => 'Alice',
             'relationship' => 'friend',
@@ -96,6 +99,24 @@ class EncryptionTest extends TestCase
 
         $this->assertStringStartsWith('eyJ', $raw->name);
         $this->assertStringStartsWith('eyJ', $raw->relationship);
+        $this->assertStringStartsWith('eyJ', $raw->note);
+    }
+
+    public function test_quote_text_source_note_are_encrypted_at_rest(): void
+    {
+        $user = User::factory()->create();
+
+        $quote = Quote::factory()->create([
+            'user_id' => $user->id,
+            'text' => 'Be the change you wish to see',
+            'source' => 'Gandhi',
+            'note' => 'Reminds me to act, not wait',
+        ]);
+
+        $raw = DB::table('quotes')->where('id', $quote->id)->first();
+
+        $this->assertStringStartsWith('eyJ', $raw->text);
+        $this->assertStringStartsWith('eyJ', $raw->source);
         $this->assertStringStartsWith('eyJ', $raw->note);
     }
 }
