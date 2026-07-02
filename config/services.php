@@ -48,4 +48,11 @@ return [
         'issuers' => ['https://accounts.google.com', 'accounts.google.com'],
     ],
 
+    'anthropic' => [
+        'key' => env('ANTHROPIC_API_KEY'),
+        'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
+        'chapter_model' => env('ANTHROPIC_CHAPTER_MODEL', 'claude-sonnet-4-6'),
+        'chapters_enabled' => env('QUEST_CHAPTERS_ENABLED', false),
+    ],
+
 ];

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AiChapterController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\SyncController;
 use App\Http\Controllers\UploadController;
@@ -23,4 +24,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/uploads/attachments/{attachmentId}', [UploadController::class, 'attachment']);
     Route::post('/uploads/audio/{audioId}', [UploadController::class, 'audio']);
     Route::post('/uploads/character-photos/{characterId}', [UploadController::class, 'characterPhoto']);
+
+    Route::get('/ai/chapters', [AiChapterController::class, 'index']);
+    Route::get('/ai/chapters/{id}', [AiChapterController::class, 'show']);
 });
