@@ -14,6 +14,7 @@ use App\Services\Auth\InvalidAppleTokenException;
 use App\Services\Auth\InvalidGoogleTokenException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Mockery\MockInterface;
 use Tests\TestCase;
@@ -184,6 +185,34 @@ class AuthTest extends TestCase
         $this->assertDatabaseMissing('entry_attachments', ['entry_id' => $entry->id]);
         $this->assertDatabaseMissing('entry_audio', ['entry_id' => $entry->id]);
         $this->assertDatabaseMissing('personal_access_tokens', ['tokenable_id' => $user->id]);
+    }
+
+    public function test_a14_delete_me_removes_the_users_s3_binaries_but_not_other_users(): void
+    {
+        Storage::fake('s3');
+
+        $user = User::factory()->create();
+        $token = $user->createToken('quest-mobile')->plainTextToken;
+        $other = User::factory()->create();
+
+        // Seed binaries under the "{kind}/{userId}/{id}.{ext}" convention that
+        // BinaryUploadService::store writes.
+        Storage::disk('s3')->put("attachments/{$user->id}/a1.jpg", 'x');
+        Storage::disk('s3')->put("audio/{$user->id}/au1.m4a", 'x');
+        Storage::disk('s3')->put("character-photos/{$user->id}/c1.jpg", 'x');
+        // A different user's binary that must survive (no cross-user deletion).
+        Storage::disk('s3')->put("attachments/{$other->id}/keep.jpg", 'x');
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->deleteJson('/api/me')
+            ->assertNoContent();
+
+        // Queue is sync in tests, so DeleteUserBinaries ran inline.
+        Storage::disk('s3')->assertMissing("attachments/{$user->id}/a1.jpg");
+        Storage::disk('s3')->assertMissing("audio/{$user->id}/au1.m4a");
+        Storage::disk('s3')->assertMissing("character-photos/{$user->id}/c1.jpg");
+
+        Storage::disk('s3')->assertExists("attachments/{$other->id}/keep.jpg");
     }
 
     public function test_register_validation_error_format(): void

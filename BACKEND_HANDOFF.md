@@ -304,6 +304,14 @@ Artisan command: `php artisan quest:purge-expired`, scheduled daily at 03:00 UTC
 - Junction tombstones with `deleted_at < now() - 90 days` are hard-deleted.
 - Stats logged via `Log::info('quest.retention.purge', $stats)` for observability.
 
+**Account deletion (`DELETE /me`) binary cleanup.** Content rows cascade-delete
+with the user, so they never pass through the retention purge above — their S3
+binaries would be orphaned forever (GDPR erasure gap + storage leak). `deleteMe`
+therefore dispatches `App\Jobs\DeleteUserBinaries`, which removes the user's
+`attachments/{id}`, `audio/{id}` and `character-photos/{id}` prefixes. It runs
+off-request (queued) so a slow/failing object store can neither block nor roll
+back the account deletion. Covered by `AuthTest::test_a14`.
+
 ---
 
 ## 11. Acceptance — §13 scenarios

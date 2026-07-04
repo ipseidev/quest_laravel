@@ -7,6 +7,7 @@ use App\Http\Requests\GoogleAuthRequest;
 use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
 use App\Http\Resources\UserResource;
+use App\Jobs\DeleteUserBinaries;
 use App\Models\User;
 use App\Services\Auth\AppleTokenVerifier;
 use App\Services\Auth\GoogleTokenVerifier;
@@ -175,11 +176,19 @@ class AuthController extends Controller
     public function deleteMe(Request $request): Response
     {
         $user = $request->user();
+        $userId = $user->id;
 
         DB::transaction(function () use ($user) {
             $user->tokens()->delete();
             $user->delete();
         });
+
+        // Content rows cascade-delete with the user, but their S3 binaries
+        // would be orphaned forever (GDPR erasure gap + storage leak — the
+        // retention purge only visits soft-deleted rows, never these). Clean
+        // them up off-request so a slow/failing object store can't block or
+        // roll back the deletion.
+        DeleteUserBinaries::dispatch($userId);
 
         return response()->noContent();
     }
