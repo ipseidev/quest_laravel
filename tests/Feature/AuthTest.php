@@ -254,6 +254,79 @@ class AuthTest extends TestCase
         $this->assertNotNull($user->password); // existing password preserved
     }
 
+    public function test_a7b_apple_signin_ignores_body_email_and_cannot_hijack_account(): void
+    {
+        // SECURITY REGRESSION: an attacker with a valid Apple token (their own
+        // `sub`) must not be able to take over a victim's existing account by
+        // supplying the victim's email in the request body. Only the verified
+        // token claim may drive account matching/linking.
+        $victim = User::factory()->create([
+            'email' => 'victim@test.io',
+            'password' => Hash::make('victim-password'),
+        ]);
+
+        // Attacker's token: their own sub + their own relay email (differs from
+        // the body email they try to inject).
+        $this->mock(AppleTokenVerifier::class, function (MockInterface $mock) {
+            $mock->shouldReceive('verify')->andReturn([
+                'sub' => 'attacker-apple-sub',
+                'email' => 'attacker@privaterelay.appleid.com',
+            ]);
+        });
+
+        $response = $this->postJson('/api/auth/apple', [
+            'identityToken' => 'attacker.identity.jwt',
+            'email' => 'victim@test.io', // malicious: not the verified claim
+            'deviceId' => $this->deviceId(),
+        ])->assertOk();
+
+        // The attacker gets their OWN new account, keyed on the verified claim.
+        $this->assertNotSame($victim->id, $response->json('user.id'));
+        $this->assertSame('attacker@privaterelay.appleid.com', $response->json('user.email'));
+
+        // The victim's account is untouched: not linked, password intact.
+        $victim->refresh();
+        $this->assertNull($victim->apple_id);
+        $this->assertNotNull($victim->password);
+
+        // The attacker's sub landed on a distinct account, never the victim's.
+        $attacker = User::query()->where('apple_id', 'attacker-apple-sub')->first();
+        $this->assertNotNull($attacker);
+        $this->assertNotSame($victim->id, $attacker->id);
+    }
+
+    public function test_a7c_apple_signin_with_no_claim_email_does_not_link_via_body_email(): void
+    {
+        // Sharpest case: attacker hides their Apple email (no `email` claim) and
+        // injects the victim's email in the body. Linking must not happen.
+        $victim = User::factory()->create([
+            'email' => 'target@test.io',
+            'password' => Hash::make('secret'),
+        ]);
+
+        $this->mock(AppleTokenVerifier::class, function (MockInterface $mock) {
+            $mock->shouldReceive('verify')->andReturn([
+                'sub' => 'no-email-sub',
+            ]);
+        });
+
+        $response = $this->postJson('/api/auth/apple', [
+            'identityToken' => 'attacker.identity.jwt',
+            'email' => 'target@test.io',
+            'deviceId' => $this->deviceId(),
+        ])->assertOk();
+
+        $this->assertNotSame($victim->id, $response->json('user.id'));
+
+        $victim->refresh();
+        $this->assertNull($victim->apple_id);
+
+        // A fresh account was created with no email (claim had none).
+        $created = User::query()->where('apple_id', 'no-email-sub')->first();
+        $this->assertNotNull($created);
+        $this->assertNull($created->email);
+    }
+
     public function test_a8_apple_signin_invalid_token_returns_401(): void
     {
         $this->mock(AppleTokenVerifier::class, function (MockInterface $mock) {

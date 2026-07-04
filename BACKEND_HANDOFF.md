@@ -32,7 +32,7 @@ pages (CGU, mentions légales, etc.) will live at the root once added.
 |---|---|---|---|
 | POST | `/api/auth/password/register` | no | 200 `{user, token}` ; 409 `email_taken` ; 422 |
 | POST | `/api/auth/password/login` | no | 200 ; 401 `invalid_credentials` (same code for wrong email AND wrong password — no enumeration) |
-| POST | `/api/auth/apple` | no | Validates `identityToken` against Apple JWKS (`https://appleid.apple.com/auth/keys`), checks `iss` + `aud=APPLE_CLIENT_ID`. Links to existing user by `email` if present. 401 `invalid_apple_token`. |
+| POST | `/api/auth/apple` | no | Validates `identityToken` against Apple JWKS (`https://appleid.apple.com/auth/keys`), checks `iss` + `aud=APPLE_CLIENT_ID`. Links to existing user by the **verified token-claim** email only (never the request body — see §12.d). 401 `invalid_apple_token`. |
 | POST | `/api/auth/google` | no | Validates `idToken` against Google JWKS, checks `iss` + `aud=GOOGLE_CLIENT_ID`. Trusts `email_verified` claim. 401 `invalid_google_token`. |
 | POST | `/api/auth/logout` | yes | 204 — revokes **only** the token used for this request; other devices keep their sessions. |
 | GET  | `/api/me` | yes | 200 `{user: {id, email, createdAt}}` |
@@ -353,6 +353,23 @@ Laravel's default `/api` prefix is in place. All endpoints live under
 pages (CGU, mentions légales, politique de confidentialité). Spec §6.2
 wording amended — the client's `DEFAULT_API_URL` of `http://localhost:8000/api`
 matches.
+
+### d. Apple sign-in uses the verified token claim for email, never the request body (security)
+
+Spec §7.3 step 4 says "if `email` is set and a user with that email exists,
+link the account", without specifying the email **source**. Taken literally
+(and as originally implemented) the server trusted the request-body `email`,
+which is attacker-controlled: anyone with a valid Apple token could pass a
+victim's email and have their `apple_id` linked to — and a token issued for —
+the victim's existing account (account takeover).
+
+**Hardening**: account lookup/linking now uses **only** `$claims['email']`
+from the verified Apple identity token (Apple emails are provider-verified; the
+claim is authoritative and matches the `google()` flow, which the spec calls
+"same fallthrough logic"). The request body still accepts `email`/`fullName`
+per the frozen contract (wire shape unchanged) but they are display hints only
+and never drive matching. Regression coverage: `AuthTest::test_a7b_*` and
+`test_a7c_*`. No request/response shape change — the client is unaffected.
 
 ---
 

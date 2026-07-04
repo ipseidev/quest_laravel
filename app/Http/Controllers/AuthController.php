@@ -77,7 +77,15 @@ class AuthController extends Controller
         }
 
         $sub = $claims['sub'];
-        $email = $request->validated('email') ?? ($claims['email'] ?? null);
+        // SECURITY: only ever trust the provider-verified claim for account
+        // lookup/linking. The request-body `email` is attacker-controlled and
+        // must NEVER be used for matching — doing so lets anyone with a valid
+        // Apple token link their `sub` to (and take over) a victim's existing
+        // account by passing the victim's email. Apple puts the verified email
+        // in the identity token, so the claim is the authoritative source
+        // (mirrors the `google()` flow below). `email`/`fullName` in the body
+        // remain accepted per the API contract but are display hints only.
+        $email = $claims['email'] ?? null;
 
         $user = User::query()->where('apple_id', $sub)->first();
 
