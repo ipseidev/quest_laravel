@@ -289,9 +289,9 @@ Decryption is transparent on read — pull responses contain plaintext. Database
 
 ## 9. Rate limiting
 
-- `/sync/push` and `/sync/pull`: 60 req/min per user → 429 `rate_limited` + `Retry-After: 60` header.
+- `/sync/push` and `/sync/pull`: 60 req/min per user → 429 `rate_limited` + `Retry-After: 60` header. Configurable via `QUEST_RATE_LIMIT_SYNC`.
+- Auth endpoints (`/auth/password/register`, `/auth/password/login`, `/auth/apple`, `/auth/google`): 10 req/min **per IP** (they are unauthenticated — no user to key on) → same 429 `rate_limited` + `Retry-After: 60` envelope. A brute-force / credential-stuffing speed bump. Configurable via `QUEST_RATE_LIMIT_AUTH`.
 - Other endpoints: unlimited in V1.
-- The 60 default is configurable via `QUEST_RATE_LIMIT_SYNC` env var.
 
 ---
 

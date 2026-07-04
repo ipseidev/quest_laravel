@@ -28,5 +28,21 @@ class AppServiceProvider extends ServiceProvider
                     ], 429)->header('Retry-After', '60');
                 });
         });
+
+        // Unauthenticated auth endpoints: keyed by IP (there is no user yet).
+        // Blunts password brute-force / credential-stuffing. Same 429 envelope
+        // as sync so the client's existing Retry-After handling applies.
+        RateLimiter::for('auth', function (Request $request) {
+            $perMinute = (int) config('quest.rate_limits.auth', 10);
+
+            return Limit::perMinute($perMinute)
+                ->by($request->ip())
+                ->response(function () {
+                    return response()->json([
+                        'error' => 'rate_limited',
+                        'message' => 'Too many authentication attempts.',
+                    ], 429)->header('Retry-After', '60');
+                });
+        });
     }
 }

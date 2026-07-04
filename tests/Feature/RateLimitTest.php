@@ -62,4 +62,28 @@ class RateLimitTest extends TestCase
             ->postJson('/api/sync/push', $payload)
             ->assertOk();
     }
+
+    public function test_auth_endpoints_are_rate_limited_per_ip(): void
+    {
+        config(['quest.rate_limits.auth' => 3]);
+        RateLimiter::clear('auth');
+
+        // Wrong credentials (401), but every attempt still counts toward the
+        // per-IP cap — that is the whole point (brute-force protection).
+        $payload = [
+            'email' => 'nobody@example.com',
+            'password' => 'whatever-guess',
+            'deviceId' => (string) Str::uuid(),
+        ];
+
+        for ($i = 1; $i <= 3; $i++) {
+            $this->postJson('/api/auth/password/login', $payload)
+                ->assertStatus(401);
+        }
+
+        $this->postJson('/api/auth/password/login', $payload)
+            ->assertStatus(429)
+            ->assertJsonPath('error', 'rate_limited')
+            ->assertHeader('Retry-After', '60');
+    }
 }
