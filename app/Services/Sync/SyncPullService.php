@@ -26,6 +26,29 @@ class SyncPullService
      */
     public function process(User $user, ?Carbon $lastPullTimestamp): array
     {
+        // All ten reads below must observe ONE consistent snapshot: a push
+        // committing between (say) the entries read and the attachments read
+        // must not surface a child row without its parent (a cross-table
+        // orphan). Postgres defaults to READ COMMITTED — a fresh snapshot per
+        // statement — so a bare transaction is not enough; raise it to
+        // REPEATABLE READ. Guarded to the outermost transaction: Postgres
+        // rejects SET TRANSACTION ISOLATION LEVEL once a statement has run, so
+        // under RefreshDatabase's wrapping test transaction (where we are only
+        // a savepoint, and reads run sequentially anyway) we skip it.
+        return DB::transaction(function () use ($user, $lastPullTimestamp) {
+            if (DB::getDriverName() === 'pgsql' && DB::transactionLevel() === 1) {
+                DB::statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            }
+
+            return $this->collectChanges($user, $lastPullTimestamp);
+        });
+    }
+
+    /**
+     * @return array{changes: array<int, array<string, mixed>>, serverTimestamp: string}
+     */
+    private function collectChanges(User $user, ?Carbon $lastPullTimestamp): array
+    {
         $serverTimestamp = now();
 
         $changes = [];
