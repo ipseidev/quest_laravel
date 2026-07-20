@@ -10,3 +10,5 @@ Artisan::command('inspire', function () {
 
 Schedule::command('quest:purge-expired')->dailyAt('03:00');
 Schedule::command('quest:generate-monthly-chapters')->monthlyOn(1, '04:00');
+// Quests complete any day, so scan daily and close the arc within a day of finishing.
+Schedule::command('quest:generate-quest-chapters')->dailyAt('04:30');
