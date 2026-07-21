@@ -462,4 +462,32 @@ If any of the following are true, please ping with details:
 
 Run `./vendor/bin/sail artisan route:list --except-vendor` if you want the full route list with bound middleware.
 
+---
+
+## 18. AI Chapters ("Le Chapitre") — out-of-V1 add-on
+
+Chapters are **not part of the frozen `BACKEND_API_SPEC.md`** — they are a post-V1, optional AI feature documented only here. The endpoints and column shapes below are the contract; if they ever move into the frozen spec they must be byte-identical in both repos (see root `CLAUDE.md`), so for now they live in the handoff to avoid touching the frozen file unilaterally.
+
+**What it is.** Server-generated French narrative summaries of a user's journal (kinds: `monthly`, `quest`, `annual`), produced from `entries` via the Anthropic Messages API and read-only on the client. Generation runs from scheduled Artisan commands → queued jobs → `App\Services\Chapter\ChapterGenerator`.
+
+**Read endpoints** (behind `auth:sanctum`, isolated by `BelongsToCurrentUserScope`):
+- `GET /api/ai/chapters` — all `status='ready'` chapters for the user, newest-first, via `ChapterResource` (`$wrap=null`, camelCase: `id, kind, periodStart, periodEnd, questId, register, title, paragraphs[{text, entryRefs[]}], threads[{type,id,name}], status, generatedAt`).
+- `GET /api/ai/chapters/{id}` — one chapter; foreign/other-status → **404** (no existence leak, never 403).
+
+**AI consent (gate — required before enabling in prod).**
+- `users.ai_chapters_opt_in` boolean, **default false**. Exposed as `aiChaptersOptIn` on `UserResource` (so `/me` and all auth responses carry it).
+- `PATCH /api/me` `{ "aiChaptersOptIn": bool }` → returns `{ user }`. Generic on purpose — future per-user settings reuse it.
+- The gate is enforced in **three** places (defense-in-depth): both generation commands filter to opted-in users, `ChapterGenerator::monthly/questArc` short-circuit on it, and the read endpoints return `[]`/404 for opted-out users. **Opt-out hides existing chapters immediately** (does not delete rows). The global `QUEST_CHAPTERS_ENABLED` env flag remains an outer kill-switch.
+
+**Generation config / reliability** (`config/services.php` → `anthropic`):
+- `chapter_model` default **`claude-sonnet-5`** — generation hard-depends on structured outputs (`output_config.format` json_schema); `claude-sonnet-4-6` does NOT support it (400s), so it must never be the default.
+- `chapter_max_tokens` default `16000` (shared by adaptive thinking + JSON output).
+- `ChapterGenerator::complete()` classifies outcomes: **transient** (5xx/429/408/529, connection error, `stop_reason=max_tokens`) throws `App\Exceptions\ChapterGenerationException` → the job retries (`$tries=4`, backoff `[60,300,900]`, `failed()` logs); **non-retryable** (refusal, permanent 4xx, malformed JSON) returns `null` (nothing to generate). Every terminal path logs with `user_id/kind/period`.
+
+**Kinds & schedule:** `monthly` — `quest:generate-monthly-chapters`, 1st of the month 04:00; `quest` — `quest:generate-quest-chapters`, daily 04:30; `annual` — `quest:generate-annual-chapters`, Jan 1 05:00 (targets the prior year; needs ≥`MIN_ANNUAL_ENTRIES`=24 entries). All three share the hardened `complete()`, the `$tries`/backoff/`failed()` job pattern, and the consent gate.
+
+**Idempotency:** partial unique indexes `chapters_period_unique` (`user_id, kind, period_start` WHERE `quest_id IS NULL`) and `chapters_quest_unique` (`quest_id, kind` WHERE `quest_id IS NOT NULL`) enforce one chapter per period/quest; `persist()` treats a lost race (unique violation) as already-done and returns null. **Backfill:** `quest:generate-monthly-chapters --since=YYYY-MM [--until=YYYY-MM]`; the command also skips users who already have the month's chapter, so it's idempotent at dispatch and safe to re-run.
+
+**Still deferred (see the recap improvement plan):** regenerate-on-entry-change, a total-material/token budget, index pagination, and local persistence + new-chapter notification on the client.
+
 — End of handoff.

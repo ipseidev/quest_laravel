@@ -16,6 +16,7 @@ Route::middleware('throttle:auth')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/me', [AuthController::class, 'me']);
+    Route::patch('/me', [AuthController::class, 'updateMe']);
     Route::delete('/me', [AuthController::class, 'deleteMe']);
 
     Route::middleware('throttle:sync')->group(function () {

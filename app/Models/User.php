@@ -50,6 +50,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'ai_chapters_opt_in' => 'boolean',
         ];
     }
 }

@@ -16,6 +16,7 @@ class UserResource extends JsonResource
             'id' => $this->id,
             'email' => $this->email,
             'createdAt' => IsoDate::format($this->created_at),
+            'aiChaptersOptIn' => (bool) $this->ai_chapters_opt_in,
         ];
     }
 }

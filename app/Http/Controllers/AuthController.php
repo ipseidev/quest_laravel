@@ -6,6 +6,7 @@ use App\Http\Requests\AppleAuthRequest;
 use App\Http\Requests\GoogleAuthRequest;
 use App\Http\Requests\LoginRequest;
 use App\Http\Requests\RegisterRequest;
+use App\Http\Requests\UpdateMeRequest;
 use App\Http\Resources\UserResource;
 use App\Jobs\DeleteUserBinaries;
 use App\Models\User;
@@ -170,6 +171,23 @@ class AuthController extends Controller
     {
         return response()->json([
             'user' => new UserResource($request->user()),
+        ]);
+    }
+
+    /**
+     * Update the current user's mutable settings. Generic on purpose — future
+     * per-user preferences reuse this rather than minting an endpoint per flag.
+     * Uses forceFill because consent is not mass-assignable on the model.
+     */
+    public function updateMe(UpdateMeRequest $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->forceFill([
+            'ai_chapters_opt_in' => $request->validated('aiChaptersOptIn'),
+        ])->save();
+
+        return response()->json([
+            'user' => new UserResource($user),
         ]);
     }
 

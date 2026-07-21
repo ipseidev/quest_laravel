@@ -25,10 +25,12 @@ class GenerateQuestChaptersCommand extends Command
         }
 
         // Completed, non-deleted quests that (a) don't already have a ready quest
-        // chapter and (b) have enough linked entries to tell an honest arc.
-        // NOTE: production must also restrict this to users who opted into the AI layer.
-        // That consent flag is not yet modelled server-side — wire it in here before shipping.
+        // chapter, (b) have enough linked entries to tell an honest arc, and (c)
+        // belong to a user who opted into the AI layer (consent gate — enforced
+        // again in ChapterGenerator as defense-in-depth).
         $quests = DB::table('quests')
+            ->join('users', 'users.id', '=', 'quests.user_id')
+            ->where('users.ai_chapters_opt_in', true)
             ->where('quests.status', 'completed')
             ->where('quests.is_deleted', false)
             ->when($this->option('user'), fn ($query, $id) => $query->where('quests.user_id', $id))

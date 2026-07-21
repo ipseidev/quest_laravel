@@ -14,7 +14,9 @@ use Illuminate\Support\Facades\DB;
 class GenerateMonthlyChaptersCommand extends Command
 {
     protected $signature = 'quest:generate-monthly-chapters
-        {--month= : Target month as YYYY-MM (defaults to last month)}
+        {--month= : Single target month as YYYY-MM (defaults to last month)}
+        {--since= : Backfill from this month (YYYY-MM), inclusive}
+        {--until= : Backfill up to this month (YYYY-MM), inclusive; defaults to last month}
         {--user= : Limit to a single user id}';
 
     protected $description = 'Generate monthly narrative chapters for eligible users.';
@@ -27,15 +29,54 @@ class GenerateMonthlyChaptersCommand extends Command
             return self::SUCCESS;
         }
 
-        $month = $this->option('month')
-            ? Carbon::parse($this->option('month').'-01')->startOfMonth()
-            : now()->subMonthNoOverflow()->startOfMonth();
+        $months = $this->targetMonths();
+        $dispatched = 0;
 
+        foreach ($months as $month) {
+            $dispatched += $this->dispatchForMonth($month);
+        }
+
+        $this->info("Dispatched {$dispatched} monthly chapter job(s) across ".count($months).' month(s).');
+
+        return self::SUCCESS;
+    }
+
+    /**
+     * The months to (re)generate: a single --month, a --since/--until backfill
+     * window, or (default) just last month.
+     *
+     * @return array<int, Carbon>
+     */
+    private function targetMonths(): array
+    {
+        if ($this->option('month')) {
+            return [Carbon::parse($this->option('month').'-01')->startOfMonth()];
+        }
+
+        if ($this->option('since')) {
+            $cursor = Carbon::parse($this->option('since').'-01')->startOfMonth();
+            $until = $this->option('until')
+                ? Carbon::parse($this->option('until').'-01')->startOfMonth()
+                : now()->subMonthNoOverflow()->startOfMonth();
+
+            $months = [];
+            while ($cursor->lte($until)) {
+                $months[] = $cursor->copy();
+                $cursor->addMonth();
+            }
+
+            return $months;
+        }
+
+        return [now()->subMonthNoOverflow()->startOfMonth()];
+    }
+
+    private function dispatchForMonth(Carbon $month): int
+    {
         $end = $month->copy()->endOfMonth();
+        $nextMonth = $month->copy()->addMonth();
 
-        // NOTE: production must also restrict this to users who opted into the AI layer.
-        // That consent flag is not yet modelled server-side — wire it in here before shipping.
-        $userIds = Entry::query()
+        $eligibleUserIds = Entry::query()
             ->withoutGlobalScope(BelongsToCurrentUserScope::class)
             ->where('is_deleted', false)
             ->whereBetween(DB::raw('COALESCE(entry_date, created_at)'), [$month, $end])
@@ -44,16 +85,27 @@ class GenerateMonthlyChaptersCommand extends Command
             ->havingRaw('count(*) >= ?', [ChapterGenerator::MIN_ENTRIES])
             ->pluck('user_id');
 
-        foreach ($userIds as $userId) {
-            $user = User::find($userId);
+        // Only opted-in users (consent gate, enforced again in ChapterGenerator)
+        // who don't already have a ready chapter for this month — so a re-run or a
+        // backfill is idempotent at dispatch time and never queues no-op jobs.
+        $users = User::query()
+            ->whereIn('id', $eligibleUserIds)
+            ->where('ai_chapters_opt_in', true)
+            ->whereNotExists(function ($query) use ($month, $nextMonth) {
+                $query->select(DB::raw(1))
+                    ->from('chapters')
+                    ->whereColumn('chapters.user_id', 'users.id')
+                    ->where('chapters.kind', 'monthly')
+                    ->where('chapters.status', 'ready')
+                    ->where('chapters.period_start', '>=', $month)
+                    ->where('chapters.period_start', '<', $nextMonth);
+            })
+            ->get();
 
-            if ($user !== null) {
-                GenerateMonthlyChapter::dispatch($user, $month);
-            }
+        foreach ($users as $user) {
+            GenerateMonthlyChapter::dispatch($user, $month);
         }
 
-        $this->info("Dispatched {$userIds->count()} monthly chapter job(s) for {$month->format('Y-m')}.");
-
-        return self::SUCCESS;
+        return $users->count();
     }
 }

@@ -51,7 +51,13 @@ return [
     'anthropic' => [
         'key' => env('ANTHROPIC_API_KEY'),
         'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
-        'chapter_model' => env('ANTHROPIC_CHAPTER_MODEL', 'claude-sonnet-4-6'),
+        // Chapter generation hard-depends on structured outputs (output_config.format
+        // json_schema). The default MUST be a model that supports it — Sonnet 4.6 does
+        // NOT (it 400s on the format the code requires), so the default is Sonnet 5.
+        'chapter_model' => env('ANTHROPIC_CHAPTER_MODEL', 'claude-sonnet-5'),
+        // Shared budget for adaptive thinking + the JSON output; too small and a long
+        // think truncates the JSON (stop_reason=max_tokens) and the chapter is lost.
+        'chapter_max_tokens' => (int) env('ANTHROPIC_CHAPTER_MAX_TOKENS', 16000),
         'chapters_enabled' => env('QUEST_CHAPTERS_ENABLED', false),
     ],
 
