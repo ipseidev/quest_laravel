@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AiChapterController;
+use App\Http\Controllers\AiChatController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\SyncController;
 use App\Http\Controllers\UploadController;
@@ -30,4 +31,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/ai/chapters', [AiChapterController::class, 'index']);
     Route::get('/ai/chapters/{id}', [AiChapterController::class, 'show']);
+
+    // "Talk to Myself" — conversational AI over the user's own journal (paid + consent gated).
+    Route::post('/ai/chat', [AiChatController::class, 'chat']);
+    Route::get('/ai/interview-prompt', [AiChatController::class, 'interviewPrompt']);
 });

@@ -53,4 +53,27 @@ class User extends Authenticatable
             'ai_chapters_opt_in' => 'boolean',
         ];
     }
+
+    /**
+     * Whether this user may use AI features (chat, interviewer, and — once the
+     * subscription gate is retrofitted — chapters). AI is a PAID feature: it
+     * requires an active subscription AND explicit consent. Every AI endpoint
+     * gates on this single method so the paid + consent policy lives in one place.
+     */
+    public function hasAiAccess(): bool
+    {
+        return $this->hasActiveSubscription() && $this->ai_chapters_opt_in;
+    }
+
+    /**
+     * TODO(billing): no subscription/entitlement mechanism exists server-side yet
+     * (no Cashier/Stripe/RevenueCat, no column). Until one lands, treat every
+     * account as entitled so consenting users can exercise AI in dev/test. When
+     * billing ships, implement the real check HERE — chat, the interviewer, and
+     * (retrofit) chapters all inherit it through hasAiAccess().
+     */
+    public function hasActiveSubscription(): bool
+    {
+        return true;
+    }
 }

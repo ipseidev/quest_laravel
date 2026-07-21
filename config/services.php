@@ -59,6 +59,18 @@ return [
         // think truncates the JSON (stop_reason=max_tokens) and the chapter is lost.
         'chapter_max_tokens' => (int) env('ANTHROPIC_CHAPTER_MAX_TOKENS', 16000),
         'chapters_enabled' => env('QUEST_CHAPTERS_ENABLED', false),
+        // "Talk to Myself" — interactive chat over the user's own entries. Free-form
+        // text (no json_schema), multi-turn, synchronous. Default Sonnet 5 (chat needs
+        // near-Opus quality at a reasonable cost).
+        'chat_model' => env('ANTHROPIC_CHAT_MODEL', 'claude-sonnet-5'),
+        'chat_max_tokens' => (int) env('ANTHROPIC_CHAT_MAX_TOKENS', 4096),
+        // The interviewer's daily question: one short line. Thinking is disabled for
+        // this (very frequent, cached) call, so a small budget is plenty. Kept as its
+        // own model knob so it can be dropped to Haiku for cost without touching chat.
+        'interview_model' => env('ANTHROPIC_INTERVIEW_MODEL', 'claude-sonnet-5'),
+        'interview_max_tokens' => (int) env('ANTHROPIC_INTERVIEW_MAX_TOKENS', 512),
+        // Global kill switch for the chat + interviewer endpoints (mirrors chapters_enabled).
+        'chat_enabled' => env('QUEST_CHAT_ENABLED', false),
     ],
 
 ];

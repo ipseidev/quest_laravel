@@ -490,4 +490,21 @@ Chapters are **not part of the frozen `BACKEND_API_SPEC.md`** — they are a pos
 
 **Still deferred (see the recap improvement plan):** regenerate-on-entry-change, a total-material/token budget, index pagination, and local persistence + new-chapter notification on the client.
 
+## 19. AI "Talk to Myself" — out-of-V1 add-on (Phase 0: server socle)
+
+Conversational AI over the user's own journal, sibling to §18. **Not in the frozen spec** — same rationale as §18. Full design in `quest_expo/TALK_TO_MYSELF_PLAN.md`. It is a **mirror** (resurfaces the user's own words, cites entries), never an oracle/advisor. Interactive and synchronous — no queue, unlike Chapters.
+
+**What Phase 0 ships (server only; no client UI yet):** two `auth:sanctum` endpoints backed by `App\Services\Chat\ChatResponder`, which reuses `ChapterGenerator`'s Anthropic call shape and its hallucination guard (cited ids intersected with real ids).
+
+**Endpoints:**
+- `POST /api/ai/chat` — one chat turn. Body: `{ "context": { "type": "quest"|"character"|"general", "entityId": uuid? }, "messages": [{ "role": "user"|"assistant", "content": string }] }` (`entityId` required for quest/character; ≤50 messages, content ≤8000 chars). Returns `{ "reply": string, "sources": string[] }` where `sources` are entry ids the model cited via inline `[[entry:<id>]]` markers, intersected with the entries actually fed (a hallucinated id can never survive). The client hydrates sources from its local copy. Foreign/missing entity → **404** (no leak). A model refusal → 200 with a soft reply + empty sources; an infrastructure failure (connection / transient / permanent HTTP / `max_tokens`) → **503** (`ChatUnavailableException`).
+- `GET /api/ai/interview-prompt` — the interviewer's question of the day. Returns `{ "question": string|null }` (null when the user has `< ChatResponder::MIN_INTERVIEW_ENTRIES`=3 entries or generation failed). **Generated lazily and cached 24h per user** (`Cache` key `ai:interview:{userId}`), so a frequently-opened app is not a frequently-billed model call. Thinking is disabled for this call to keep it cheap.
+
+**Gate — PAID + consent (this is the policy change vs §18).** AI is a **paying-accounts-only** feature: both endpoints require `chat_enabled` (kill switch, 404 when off) **and** `User::hasAiAccess()` (403 otherwise). `hasAiAccess() = hasActiveSubscription() && ai_chapters_opt_in` — consent is the **shared** §18 flag (`ai_chapters_opt_in`), no new toggle.
+- ⚠️ **`User::hasActiveSubscription()` is a stub returning `true`** — there is no billing mechanism server-side yet (no Cashier/Stripe/RevenueCat, no column). When billing lands, implement the real check in that one method; chat + interviewer inherit it, and §18 Chapters should be **retrofitted** to gate on `hasAiAccess()` too (today Chapters is consent-only).
+
+**Config** (`config/services.php` → `anthropic`): `chat_model` (default `claude-sonnet-5`), `chat_max_tokens` (4096), `interview_model` (default `claude-sonnet-5`; can drop to `claude-haiku-4-5` for cost without touching chat), `interview_max_tokens` (512), `chat_enabled` (`QUEST_CHAT_ENABLED`, default false).
+
+**Not in Phase 0 (deferred):** the client surface (chat screen + quest/character pill + Home interviewer card), streaming, conversation persistence, and the **factual/aggregate mode** ("how many times did I…") — which needs tool-calling for accurate counting ("the DB counts, Claude narrates"). Tests: `tests/Feature/AiChatTest.php`.
+
 — End of handoff.
