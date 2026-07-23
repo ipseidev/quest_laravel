@@ -10,6 +10,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class UploadTest extends TestCase
@@ -82,7 +83,7 @@ class UploadTest extends TestCase
         $file = UploadedFile::fake()->image('photo.jpg');
 
         $this->withHeaders($this->bearer())
-            ->post('/api/uploads/attachments/'.\Illuminate\Support\Str::uuid(), ['file' => $file])
+            ->post('/api/uploads/attachments/'.Str::uuid(), ['file' => $file])
             ->assertStatus(404)
             ->assertJsonPath('error', 'not_found');
     }
@@ -312,5 +313,82 @@ class UploadTest extends TestCase
             ->postJson('/api/uploads/attachments/'.$att->id, [])
             ->assertStatus(422)
             ->assertJsonPath('error', 'validation');
+    }
+
+    // --- Free-tier media backup quota ---
+
+    public function test_free_account_media_backup_is_capped_by_quota(): void
+    {
+        config(['quest.free_media_quota_bytes' => 100 * 1024]); // 100 KB
+        $entry = Entry::factory()->for($this->user)->create();
+        $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att->id, [
+                'file' => UploadedFile::fake()->create('photo.jpg', 600, 'image/jpeg'), // 600 KB > quota
+            ])
+            ->assertStatus(402)
+            ->assertJsonPath('error', 'media_quota_exceeded');
+
+        $att->refresh();
+        $this->assertNull($att->remote_uri);
+        Storage::disk('s3')->assertMissing('attachments/'.$this->user->id.'/'.$att->id.'.jpg');
+    }
+
+    public function test_upload_persists_size_bytes_and_accumulates_toward_quota(): void
+    {
+        config(['quest.free_media_quota_bytes' => 1024 * 1024]); // 1 MB — fits one 600 KB photo, not two
+        $entry = Entry::factory()->for($this->user)->create();
+        $att1 = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+        $att2 = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att1->id, [
+                'file' => UploadedFile::fake()->create('a.jpg', 600, 'image/jpeg'),
+            ])->assertOk();
+
+        $att1->refresh();
+        $this->assertEquals(600 * 1024, $att1->size_bytes);
+
+        // A second 600 KB upload would total 1.2 MB > 1 MB → blocked.
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att2->id, [
+                'file' => UploadedFile::fake()->create('b.jpg', 600, 'image/jpeg'),
+            ])->assertStatus(402);
+    }
+
+    public function test_deleting_media_frees_quota(): void
+    {
+        config(['quest.free_media_quota_bytes' => 1024 * 1024]); // 1 MB
+        $entry = Entry::factory()->for($this->user)->create();
+        $att1 = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+        $att2 = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att1->id, [
+                'file' => UploadedFile::fake()->create('a.jpg', 600, 'image/jpeg'),
+            ])->assertOk();
+
+        // Soft-delete frees the quota immediately (only live rows count).
+        $att1->forceFill(['is_deleted' => true])->save();
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att2->id, [
+                'file' => UploadedFile::fake()->create('b.jpg', 600, 'image/jpeg'),
+            ])->assertOk();
+    }
+
+    public function test_subscriber_media_backup_is_unlimited(): void
+    {
+        config(['quest.free_media_quota_bytes' => 1024]); // 1 KB — tiny
+        $subscriber = User::factory()->subscribed()->create();
+        $token = $subscriber->createToken('mobile')->plainTextToken;
+        $entry = Entry::factory()->for($subscriber)->create();
+        $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer($token))
+            ->post('/api/uploads/attachments/'.$att->id, [
+                'file' => UploadedFile::fake()->create('big.jpg', 600, 'image/jpeg'),
+            ])->assertOk();
     }
 }

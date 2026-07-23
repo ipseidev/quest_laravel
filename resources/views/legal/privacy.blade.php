@@ -13,7 +13,7 @@
     </div>
 
     <p>
-        Quest est un journal intime privé. Cette politique explique quelles données nous traitons,
+        Nacre est un journal intime privé. Cette politique explique quelles données nous traitons,
         pourquoi, où elles sont stockées et quels sont tes droits. Notre principe de départ :
         <strong>tu es propriétaire de tes données</strong>, sans publicité ni revente, jamais.
     </p>
@@ -97,7 +97,7 @@
     </div>
 
     <p>
-        Quest is a private journaling app. This policy explains what data we process, why, where it is
+        Nacre is a private journaling app. This policy explains what data we process, why, where it is
         stored, and your rights. Our starting principle: <strong>you own your data</strong> — no ads,
         no reselling, ever.
     </p>

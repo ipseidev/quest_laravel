@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="robots" content="index, follow">
-    <title>@yield('title') · Quest</title>
+    <title>@yield('title') · Nacre</title>
     <style>
         :root {
             --bg: #fbfaf7;
@@ -94,7 +94,7 @@
 <body>
     <main>
         <header>
-            <a class="brand" href="{{ url('/') }}">Quest</a>
+            <a class="brand" href="{{ url('/') }}">Nacre</a>
             <nav>
                 <a href="{{ route('legal.privacy', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Confidentialité' : 'Privacy' }}</a>
                 <a href="{{ route('legal.terms', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Conditions' : 'Terms' }}</a>
@@ -110,8 +110,8 @@
         <footer>
             <p>
                 {{ $lang === 'fr'
-                    ? 'Quest — un journal où ta vie devient une histoire. Contact : '
-                    : 'Quest — a journal where your life becomes a story. Contact: ' }}
+                    ? 'Nacre — un journal où ta vie devient une histoire. Contact : '
+                    : 'Nacre — a journal where your life becomes a story. Contact: ' }}
                 <a href="mailto:contact@affiniteam.io">contact@affiniteam.io</a>
             </p>
         </footer>

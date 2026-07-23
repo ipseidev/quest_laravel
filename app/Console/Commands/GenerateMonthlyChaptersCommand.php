@@ -91,6 +91,7 @@ class GenerateMonthlyChaptersCommand extends Command
         $users = User::query()
             ->whereIn('id', $eligibleUserIds)
             ->where('ai_chapters_opt_in', true)
+            ->withActiveSubscription()
             ->whereNotExists(function ($query) use ($month, $nextMonth) {
                 $query->select(DB::raw(1))
                     ->from('chapters')

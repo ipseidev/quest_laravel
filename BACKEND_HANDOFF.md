@@ -430,7 +430,7 @@ Endpoints / behaviors deliberately deferred:
 - Real-time sync (websockets / SSE)
 - AI features
 - Webhooks, admin endpoints, multi-tenancy
-- Per-user storage quota enforcement (product-policy decision)
+- ~~Per-user storage quota enforcement~~ — **IMPLEMENTED 2026-07-23** (monetization): a free-tier cloud-**media** backup quota. `BackupQuotaService` sums `size_bytes` of each user's non-deleted binaries (attachments + audio + character photos); over-quota uploads by a FREE account return **`402 media_quota_exceeded`**; Nacre Plus subscribers (`User::hasActiveSubscription()`) are unlimited. Default **500 MB** via `config/quest.php` (`QUEST_FREE_MEDIA_QUOTA_MB`). Text/metadata backup stays unmetered. This is a deliberate divergence from `BACKEND_API_SPEC.md` (which listed quota as "product policy, not V1"); the client should treat the 402 as terminal (no retry loop) and may prompt to upgrade.
 
 ---
 
@@ -473,6 +473,7 @@ Chapters are **not part of the frozen `BACKEND_API_SPEC.md`** — they are a pos
 **Read endpoints** (behind `auth:sanctum`, isolated by `BelongsToCurrentUserScope`):
 - `GET /api/ai/chapters` — all `status='ready'` chapters for the user, newest-first, via `ChapterResource` (`$wrap=null`, camelCase: `id, kind, periodStart, periodEnd, questId, register, title, paragraphs[{text, entryRefs[]}], threads[{type,id,name}], status, generatedAt`).
 - `GET /api/ai/chapters/{id}` — one chapter; foreign/other-status → **404** (no existence leak, never 403).
+- `POST /api/ai/chapters/sample` — **added 2026-07-23** (monetization P1.3). Generates the ONE complimentary all-time Chapter a FREE account may request (the conversion hook). Gates: kill switch → 404; no consent → 403 `consent_required`; already subscribed → 409 `sample_not_applicable`; already used (`sample_chapter_generated_at` set, or any ready chapter exists) → 409 `sample_already_used`; `< MIN_ALLTIME_ENTRIES` entries → 422 `not_enough_entries` (`{required,current}`). On success: stamps `sample_chapter_generated_at` (optimistic lock), dispatches `GenerateSampleChapter`, returns **202** `{status:"generating"}`; the client polls `GET /api/ai/chapters`. The job releases the stamp if generation produces nothing (refusal/thin) or fails, so the sample can be retried.
 
 **AI consent (gate — required before enabling in prod).**
 - `users.ai_chapters_opt_in` boolean, **default false**. Exposed as `aiChaptersOptIn` on `UserResource` (so `/me` and all auth responses carry it).
@@ -501,7 +502,8 @@ Conversational AI over the user's own journal, sibling to §18. **Not in the fro
 - `GET /api/ai/interview-prompt` — the interviewer's question of the day. Returns `{ "question": string|null }` (null when the user has `< ChatResponder::MIN_INTERVIEW_ENTRIES`=3 entries or generation failed). **Generated lazily and cached 24h per user** (`Cache` key `ai:interview:{userId}`), so a frequently-opened app is not a frequently-billed model call. Thinking is disabled for this call to keep it cheap.
 
 **Gate — PAID + consent (this is the policy change vs §18).** AI is a **paying-accounts-only** feature: both endpoints require `chat_enabled` (kill switch, 404 when off) **and** `User::hasAiAccess()` (403 otherwise). `hasAiAccess() = hasActiveSubscription() && ai_chapters_opt_in` — consent is the **shared** §18 flag (`ai_chapters_opt_in`), no new toggle.
-- ⚠️ **`User::hasActiveSubscription()` is a stub returning `true`** — there is no billing mechanism server-side yet (no Cashier/Stripe/RevenueCat, no column). When billing lands, implement the real check in that one method; chat + interviewer inherit it, and §18 Chapters should be **retrofitted** to gate on `hasAiAccess()` too (today Chapters is consent-only).
+- ✅ **`User::hasActiveSubscription()` implemented 2026-07-23** — reads `subscription_product_id` + `subscription_expires_at` on `users` (null product = free account; a set product with a future or null expiry = active, where null expiry marks a lifetime entitlement; past expiry = lapsed). Fed by the RevenueCat webhook (deferred — MONETIZATION_PLAN P2.1), so it returns `false` for everyone until that ships. Chat + interviewer inherit it via `hasAiAccess()`.
+- ✅ **Chapters subscription retrofit 2026-07-23 (P1.3)** — recurring generation now requires an **active subscription**: the scheduled `quest:generate-{monthly,annual,quest}-chapters` commands filter on `User::scopeWithActiveSubscription()` in addition to `ai_chapters_opt_in`. The generator methods stay **consent-only** (a defense-in-depth backstop) so the free `POST /ai/chapters/sample` path can reuse `allTime()` for a non-subscriber. The on-demand `quest:generate-alltime-chapters` command is left admin/consent-only. **Reading** chapters (`GET /ai/chapters[/{id}]`) stays consent-only — a lapsed subscriber is never locked out of chapters already generated.
 
 **Config** (`config/services.php` → `anthropic`): `chat_model` (default `claude-sonnet-5`), `chat_max_tokens` (4096), `interview_model` (default `claude-sonnet-5`; can drop to `claude-haiku-4-5` for cost without touching chat), `interview_max_tokens` (512), `chat_enabled` (`QUEST_CHAT_ENABLED`, default false).
 

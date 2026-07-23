@@ -45,12 +45,23 @@ class AiChatTest extends TestCase
         return ['Authorization' => 'Bearer '.$user->createToken('mobile')->plainTextToken];
     }
 
+    /**
+     * A user who satisfies the full AI gate: opted into the AI layer AND holding
+     * an active paid subscription. AI is a paid + consent feature, so every
+     * access-path test needs both (the kill-switch and consent tests below
+     * deliberately omit one to assert the gate).
+     */
+    private function aiUser(): User
+    {
+        return User::factory()->optedIntoAi()->subscribed()->create();
+    }
+
     // --- Chat ---
 
     public function test_chat_replies_and_filters_hallucinated_sources(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         $quest = Quest::factory()->for($user)->create(['title' => 'Quitter Lyon']);
         $entry = Entry::factory()->for($user)->create();
         $entry->quests()->attach($quest->id, ['created_at' => now()]);
@@ -80,7 +91,7 @@ class AiChatTest extends TestCase
     public function test_chat_general_mode_replies_without_an_entity(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         Entry::factory()->count(3)->for($user)->create();
 
         $this->fakeChat('D\'après ce que je vois ici, tu écris surtout le soir.');
@@ -98,7 +109,7 @@ class AiChatTest extends TestCase
     {
         config(['services.anthropic.chat_enabled' => false]);
         Http::fake();
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
 
         $this->withHeaders($this->tokenHeader($user))
             ->postJson('/api/ai/chat', [
@@ -126,13 +137,30 @@ class AiChatTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_chat_requires_active_subscription(): void
+    {
+        config(['services.anthropic.chat_enabled' => true]);
+        Http::fake();
+        // Opted into AI, but on a free account (no active subscription).
+        $user = User::factory()->optedIntoAi()->create();
+
+        $this->withHeaders($this->tokenHeader($user))
+            ->postJson('/api/ai/chat', [
+                'context' => ['type' => 'general'],
+                'messages' => [['role' => 'user', 'content' => 'salut']],
+            ])
+            ->assertForbidden();
+
+        Http::assertNothingSent();
+    }
+
     public function test_chat_foreign_entity_is_404_without_leak(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
         Http::fake();
         $owner = User::factory()->create();
         $quest = Quest::factory()->for($owner)->create();
-        $intruder = User::factory()->optedIntoAi()->create();
+        $intruder = User::factory()->optedIntoAi()->subscribed()->create();
 
         $this->withHeaders($this->tokenHeader($intruder))
             ->postJson('/api/ai/chat', [
@@ -147,7 +175,7 @@ class AiChatTest extends TestCase
     public function test_chat_validates_payload(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
 
         // Entity type without entityId → 422.
         $this->withHeaders($this->tokenHeader($user))
@@ -169,7 +197,7 @@ class AiChatTest extends TestCase
     public function test_chat_infrastructure_failure_returns_503(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         Entry::factory()->for($user)->create();
         $this->fakeChatRaw(['error' => 'overloaded'], 529);
 
@@ -184,7 +212,7 @@ class AiChatTest extends TestCase
     public function test_chat_refusal_returns_soft_reply(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         Entry::factory()->for($user)->create();
         $this->fakeChatRaw(['stop_reason' => 'refusal', 'content' => []], 200);
 
@@ -204,7 +232,7 @@ class AiChatTest extends TestCase
     public function test_interview_returns_question_and_caches_for_24h(): void
     {
         config(['services.anthropic.chat_enabled' => true]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         Entry::factory()->count(3)->for($user)->create();
 
         $question = 'Qu\'est-ce qui te retient encore à Lyon ?';
@@ -231,7 +259,7 @@ class AiChatTest extends TestCase
             'services.anthropic.chat_enabled' => true,
             'services.anthropic.interview_model' => 'claude-haiku-4-5',
         ]);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         Entry::factory()->count(3)->for($user)->create();
         $this->fakeChat('Une question ?');
 
@@ -247,7 +275,7 @@ class AiChatTest extends TestCase
     {
         config(['services.anthropic.chat_enabled' => true]);
         Http::fake();
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
         Entry::factory()->count(2)->for($user)->create(); // below MIN_INTERVIEW_ENTRIES
 
         $this->withHeaders($this->tokenHeader($user))
@@ -275,7 +303,7 @@ class AiChatTest extends TestCase
     {
         config(['services.anthropic.chat_enabled' => false]);
         Http::fake();
-        $user = User::factory()->optedIntoAi()->create();
+        $user = $this->aiUser();
 
         $this->withHeaders($this->tokenHeader($user))
             ->getJson('/api/ai/interview-prompt')

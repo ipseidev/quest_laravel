@@ -5,6 +5,7 @@ namespace App\Models;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -51,6 +52,8 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'ai_chapters_opt_in' => 'boolean',
+            'subscription_expires_at' => 'datetime',
+            'sample_chapter_generated_at' => 'datetime',
         ];
     }
 
@@ -66,14 +69,36 @@ class User extends Authenticatable
     }
 
     /**
-     * TODO(billing): no subscription/entitlement mechanism exists server-side yet
-     * (no Cashier/Stripe/RevenueCat, no column). Until one lands, treat every
-     * account as entitled so consenting users can exercise AI in dev/test. When
-     * billing ships, implement the real check HERE — chat, the interviewer, and
-     * (retrofit) chapters all inherit it through hasAiAccess().
+     * Whether this account holds an active paid entitlement ("Nacre Plus").
+     *
+     * Source of truth is `subscription_product_id` + `subscription_expires_at`,
+     * fed by the RevenueCat webhook (deferred — see MONETIZATION_PLAN P2.1). A
+     * null product id = free account. A set product id with a future expiry — or
+     * a null expiry, which marks a non-expiring "lifetime" entitlement — is
+     * active; a past expiry means it lapsed. Chat + interviewer gate on this via
+     * hasAiAccess(); chapters are retrofitted to it in P1.3.
      */
     public function hasActiveSubscription(): bool
     {
-        return true;
+        if ($this->subscription_product_id === null) {
+            return false;
+        }
+
+        return $this->subscription_expires_at === null
+            || $this->subscription_expires_at->isFuture();
+    }
+
+    /**
+     * Constrain to accounts with an active paid entitlement — the query-level
+     * mirror of hasActiveSubscription(), used by the scheduled chapter commands
+     * so only paying users get recurring AI Chapters.
+     */
+    public function scopeWithActiveSubscription(Builder $query): void
+    {
+        $query->whereNotNull('subscription_product_id')
+            ->where(function (Builder $inner) {
+                $inner->whereNull('subscription_expires_at')
+                    ->orWhere('subscription_expires_at', '>', now());
+            });
     }
 }

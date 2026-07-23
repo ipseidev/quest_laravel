@@ -53,4 +53,17 @@ class UserFactory extends Factory
             'ai_chapters_opt_in' => true,
         ]);
     }
+
+    /**
+     * Indicate that the user holds an active paid entitlement ("Nacre Plus").
+     * Defaults to an annual plan expiring in a year; pass 'lifetime' for a
+     * non-expiring entitlement (null expiry).
+     */
+    public function subscribed(string $productId = 'annual'): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'subscription_product_id' => $productId,
+            'subscription_expires_at' => $productId === 'lifetime' ? null : now()->addYear(),
+        ]);
+    }
 }

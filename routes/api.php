@@ -30,6 +30,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/uploads/character-photos/{characterId}', [UploadController::class, 'characterPhoto']);
 
     Route::get('/ai/chapters', [AiChapterController::class, 'index']);
+    Route::post('/ai/chapters/sample', [AiChapterController::class, 'sample']);
     Route::get('/ai/chapters/{id}', [AiChapterController::class, 'show']);
 
     // "Talk to Myself" — conversational AI over the user's own journal (paid + consent gated).

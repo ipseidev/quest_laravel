@@ -13,11 +13,11 @@
     </div>
 
     <h2>1. Acceptation</h2>
-    <p>En utilisant Quest, tu acceptes ces conditions. Si tu n'es pas d'accord, n'utilise pas l'application.</p>
+    <p>En utilisant Nacre, tu acceptes ces conditions. Si tu n'es pas d'accord, n'utilise pas l'application.</p>
 
     <h2>2. Le service</h2>
     <p>
-        Quest est une application de journal intime. Elle fonctionne hors-ligne sur ton appareil ;
+        Nacre est une application de journal intime. Elle fonctionne hors-ligne sur ton appareil ;
         un compte optionnel permet de synchroniser tes données entre appareils.
     </p>
 
@@ -85,11 +85,11 @@
     </div>
 
     <h2>1. Acceptance</h2>
-    <p>By using Quest, you agree to these terms. If you do not agree, do not use the app.</p>
+    <p>By using Nacre, you agree to these terms. If you do not agree, do not use the app.</p>
 
     <h2>2. The service</h2>
     <p>
-        Quest is a journaling app. It works offline on your device; an optional account lets you sync your
+        Nacre is a journaling app. It works offline on your device; an optional account lets you sync your
         data across devices.
     </p>
 

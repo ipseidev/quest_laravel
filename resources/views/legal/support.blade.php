@@ -5,7 +5,7 @@
 @section('content')
 @if ($lang === 'fr')
     <h1>Aide &amp; support</h1>
-    <p class="updated">Quest — un journal où ta vie devient une histoire.</p>
+    <p class="updated">Nacre — un journal où ta vie devient une histoire.</p>
 
     <p>
         Une question, un bug, une suggestion ? Écris-nous — on lit tout et on répond
@@ -13,14 +13,14 @@
     </p>
     <p>
         <strong>Contact :</strong>
-        <a href="mailto:contact@affiniteam.io?subject=Quest%20%E2%80%94%20Support">contact@affiniteam.io</a>
+        <a href="mailto:contact@affiniteam.io?subject=Nacre%20%E2%80%94%20Support">contact@affiniteam.io</a>
     </p>
 
     <h2>Questions fréquentes</h2>
 
     <h3>Mes données sont-elles privées ?</h3>
     <p>
-        Quest fonctionne hors-ligne sur ton appareil ; un compte sert uniquement à
+        Nacre fonctionne hors-ligne sur ton appareil ; un compte sert uniquement à
         synchroniser entre tes appareils. Aucune publicité, aucune revente, aucun
         pistage. Voir la <a href="{{ route('legal.privacy', ['lang' => $lang]) }}">politique de confidentialité</a>.
     </p>
@@ -44,7 +44,7 @@
     </p>
 @else
     <h1>Help &amp; support</h1>
-    <p class="updated">Quest — a journal where your life becomes a story.</p>
+    <p class="updated">Nacre — a journal where your life becomes a story.</p>
 
     <p>
         A question, a bug, a suggestion? Email us — we read everything and usually
@@ -52,14 +52,14 @@
     </p>
     <p>
         <strong>Contact:</strong>
-        <a href="mailto:contact@affiniteam.io?subject=Quest%20%E2%80%94%20Support">contact@affiniteam.io</a>
+        <a href="mailto:contact@affiniteam.io?subject=Nacre%20%E2%80%94%20Support">contact@affiniteam.io</a>
     </p>
 
     <h2>Frequently asked questions</h2>
 
     <h3>Is my data private?</h3>
     <p>
-        Quest works offline on your device; an account only syncs across your devices.
+        Nacre works offline on your device; an account only syncs across your devices.
         No ads, no reselling, no tracking. See the
         <a href="{{ route('legal.privacy', ['lang' => $lang]) }}">privacy policy</a>.
     </p>

@@ -6,6 +6,7 @@ use App\Http\Requests\UploadFileRequest;
 use App\Models\Character;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Services\Upload\BackupQuotaService;
 use App\Services\Upload\BinaryUploadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\UploadedFile;
@@ -25,7 +26,10 @@ class UploadController extends Controller
 
     private const AUDIO_MAX_BYTES = 50 * 1024 * 1024;
 
-    public function __construct(private readonly BinaryUploadService $service) {}
+    public function __construct(
+        private readonly BinaryUploadService $service,
+        private readonly BackupQuotaService $quota,
+    ) {}
 
     public function attachment(UploadFileRequest $request, string $attachmentId): JsonResponse
     {
@@ -36,13 +40,18 @@ class UploadController extends Controller
         if ($attachment->remote_uri !== null) {
             return $this->alreadyUploaded();
         }
-        if (($error = $this->validateUpload($request->file('file'), self::ATTACHMENT_MIMES, self::ATTACHMENT_MAX_BYTES)) !== null) {
+        $file = $request->file('file');
+        if (($error = $this->validateUpload($file, self::ATTACHMENT_MIMES, self::ATTACHMENT_MAX_BYTES)) !== null) {
             return $error;
         }
+        if (! $this->quota->canStore($request->user(), (int) $file->getSize())) {
+            return $this->quotaExceeded();
+        }
 
-        $url = $this->service->store('attachments', $request->user()->id, $attachmentId, $request->file('file'));
+        $url = $this->service->store('attachments', $request->user()->id, $attachmentId, $file);
 
         $attachment->remote_uri = $url;
+        $attachment->size_bytes = (int) $file->getSize();
         $attachment->save();
 
         return response()->json(['remoteUri' => $url]);
@@ -57,13 +66,18 @@ class UploadController extends Controller
         if ($audio->remote_uri !== null) {
             return $this->alreadyUploaded();
         }
-        if (($error = $this->validateUpload($request->file('file'), self::AUDIO_MIMES, self::AUDIO_MAX_BYTES)) !== null) {
+        $file = $request->file('file');
+        if (($error = $this->validateUpload($file, self::AUDIO_MIMES, self::AUDIO_MAX_BYTES)) !== null) {
             return $error;
         }
+        if (! $this->quota->canStore($request->user(), (int) $file->getSize())) {
+            return $this->quotaExceeded();
+        }
 
-        $url = $this->service->store('audio', $request->user()->id, $audioId, $request->file('file'));
+        $url = $this->service->store('audio', $request->user()->id, $audioId, $file);
 
         $audio->remote_uri = $url;
+        $audio->size_bytes = (int) $file->getSize();
         $audio->save();
 
         return response()->json(['remoteUri' => $url]);
@@ -78,13 +92,18 @@ class UploadController extends Controller
         if ($character->remote_photo_uri !== null) {
             return $this->alreadyUploaded();
         }
-        if (($error = $this->validateUpload($request->file('file'), self::ATTACHMENT_MIMES, self::ATTACHMENT_MAX_BYTES)) !== null) {
+        $file = $request->file('file');
+        if (($error = $this->validateUpload($file, self::ATTACHMENT_MIMES, self::ATTACHMENT_MAX_BYTES)) !== null) {
             return $error;
         }
+        if (! $this->quota->canStore($request->user(), (int) $file->getSize())) {
+            return $this->quotaExceeded();
+        }
 
-        $url = $this->service->store('character-photos', $request->user()->id, $characterId, $request->file('file'));
+        $url = $this->service->store('character-photos', $request->user()->id, $characterId, $file);
 
         $character->remote_photo_uri = $url;
+        $character->size_bytes = (int) $file->getSize();
         $character->save();
 
         return response()->json(['remoteUri' => $url]);
@@ -123,5 +142,13 @@ class UploadController extends Controller
             'error' => 'already_uploaded',
             'message' => 'A binary has already been uploaded for this resource.',
         ], 409);
+    }
+
+    private function quotaExceeded(): JsonResponse
+    {
+        return response()->json([
+            'error' => 'media_quota_exceeded',
+            'message' => 'Your free cloud backup is full. Upgrade to Nacre Plus for unlimited media backup.',
+        ], ResponseAlias::HTTP_PAYMENT_REQUIRED);
     }
 }

@@ -31,6 +31,11 @@ class GenerateQuestChaptersCommand extends Command
         $quests = DB::table('quests')
             ->join('users', 'users.id', '=', 'quests.user_id')
             ->where('users.ai_chapters_opt_in', true)
+            ->whereNotNull('users.subscription_product_id')
+            ->where(function ($q) {
+                $q->whereNull('users.subscription_expires_at')
+                    ->orWhere('users.subscription_expires_at', '>', now());
+            })
             ->where('quests.status', 'completed')
             ->where('quests.is_deleted', false)
             ->when($this->option('user'), fn ($query, $id) => $query->where('quests.user_id', $id))

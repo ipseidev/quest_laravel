@@ -77,7 +77,7 @@ class ChapterTest extends TestCase
 
     public function test_monthly_generation_creates_chapter_filters_refs_and_builds_threads(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $march = Carbon::parse('2026-03-01');
 
         $quest = Quest::factory()->for($user)->create(['title' => 'Quitter Lyon']);
@@ -118,7 +118,7 @@ class ChapterTest extends TestCase
 
     public function test_thin_period_skips_generation_without_calling_model(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $march = Carbon::parse('2026-03-01');
         Entry::factory()->count(3)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
 
@@ -134,7 +134,7 @@ class ChapterTest extends TestCase
 
     public function test_generation_is_idempotent(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $march = Carbon::parse('2026-03-01');
         Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
 
@@ -151,7 +151,7 @@ class ChapterTest extends TestCase
     public function test_chapters_index_is_isolated_between_accounts(): void
     {
         $userA = User::factory()->create();
-        $userB = User::factory()->optedIntoAi()->create();
+        $userB = User::factory()->optedIntoAi()->subscribed()->create();
         $chapterA = Chapter::factory()->for($userA)->create();
         $chapterB = Chapter::factory()->for($userB)->create();
 
@@ -169,7 +169,7 @@ class ChapterTest extends TestCase
     public function test_chapter_show_returns_unwrapped_camelcase_and_404_for_foreign(): void
     {
         $userA = User::factory()->create();
-        $userB = User::factory()->optedIntoAi()->create();
+        $userB = User::factory()->optedIntoAi()->subscribed()->create();
         $chapterA = Chapter::factory()->for($userA)->create();
         $chapterB = Chapter::factory()->for($userB)->create(['register' => 'light']);
 
@@ -194,10 +194,10 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         $this->fakeAnthropic(['register' => 'neutral', 'title' => 'Mars', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
 
-        $eligible = User::factory()->optedIntoAi()->create();
+        $eligible = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(6)->for($eligible)->create(['entry_date' => Carbon::parse('2026-03-10')]);
 
-        $thin = User::factory()->optedIntoAi()->create();
+        $thin = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(2)->for($thin)->create(['entry_date' => Carbon::parse('2026-03-10')]);
 
         $this->artisan('quest:generate-monthly-chapters', ['--month' => '2026-03'])->assertSuccessful();
@@ -211,7 +211,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => false]);
         Http::fake();
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(6)->for($user)->create(['entry_date' => Carbon::parse('2026-03-10')]);
 
         $this->artisan('quest:generate-monthly-chapters', ['--month' => '2026-03'])->assertSuccessful();
@@ -222,7 +222,7 @@ class ChapterTest extends TestCase
 
     public function test_quest_arc_generation_sets_quest_id_filters_refs_and_builds_threads(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $quest = Quest::factory()->for($user)->create([
             'title' => 'Déménager à Lisbonne',
             'status' => 'completed',
@@ -268,7 +268,7 @@ class ChapterTest extends TestCase
     {
         Http::fake();
         config(['services.anthropic.key' => 'test-key']);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
 
         // Active quest with plenty of entries → skipped (not completed).
         $active = Quest::factory()->for($user)->create(['status' => 'active']);
@@ -291,7 +291,7 @@ class ChapterTest extends TestCase
 
     public function test_quest_arc_generation_is_idempotent(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $quest = Quest::factory()->for($user)->create(['status' => 'completed', 'completed_at' => now(), 'started_at' => now()->subMonths(2)]);
         foreach (Entry::factory()->count(3)->for($user)->create() as $entry) {
             $entry->quests()->attach($quest->id, ['created_at' => now()]);
@@ -312,7 +312,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         $this->fakeAnthropic(['register' => 'neutral', 'title' => 'Arc', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
 
         $completed = Quest::factory()->for($user)->create(['status' => 'completed', 'completed_at' => now()]);
         foreach (Entry::factory()->count(3)->for($user)->create() as $entry) {
@@ -335,7 +335,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => false]);
         Http::fake();
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $quest = Quest::factory()->for($user)->create(['status' => 'completed', 'completed_at' => now()]);
         foreach (Entry::factory()->count(3)->for($user)->create() as $entry) {
             $entry->quests()->attach($quest->id, ['created_at' => now()]);
@@ -453,7 +453,7 @@ class ChapterTest extends TestCase
 
     public function test_me_response_exposes_consent_flag(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $token = $user->createToken('mobile')->plainTextToken;
 
         $this->withHeader('Authorization', 'Bearer '.$token)
@@ -475,7 +475,7 @@ class ChapterTest extends TestCase
 
     private function optedUserWithEntries(): User
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(6)->for($user)->create(['entry_date' => Carbon::parse('2026-03-10')]);
 
         return $user;
@@ -532,7 +532,7 @@ class ChapterTest extends TestCase
 
     public function test_annual_generation_creates_chapter(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $entries = Entry::factory()
             ->count(ChapterGenerator::MIN_ANNUAL_ENTRIES)
             ->for($user)
@@ -560,7 +560,7 @@ class ChapterTest extends TestCase
     {
         Http::fake();
         config(['services.anthropic.key' => 'test-key']);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(5)->for($user)->create(['entry_date' => Carbon::parse('2026-06-15')]);
 
         $this->assertNull(app(ChapterGenerator::class)->annual($user, 2026));
@@ -569,7 +569,7 @@ class ChapterTest extends TestCase
 
     public function test_annual_generation_is_idempotent(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()
             ->count(ChapterGenerator::MIN_ANNUAL_ENTRIES)
             ->for($user)
@@ -610,7 +610,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         $this->fakeAnthropic(['register' => 'neutral', 'title' => '2026', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
 
-        $eligible = User::factory()->optedIntoAi()->create();
+        $eligible = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(ChapterGenerator::MIN_ANNUAL_ENTRIES)->for($eligible)->create(['entry_date' => Carbon::parse('2026-04-10')]);
 
         $optedOut = User::factory()->create();
@@ -676,7 +676,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         $this->fakeAnthropic(['register' => 'neutral', 'title' => 'm', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         foreach (['2026-01-10', '2026-02-10', '2026-03-10'] as $date) {
             Entry::factory()->count(6)->for($user)->create(['entry_date' => Carbon::parse($date)]);
         }
@@ -698,7 +698,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         $this->fakeAnthropic(['register' => 'neutral', 'title' => 'm', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(6)->for($user)->create(['entry_date' => Carbon::parse('2026-03-10')]);
 
         $this->artisan('quest:generate-monthly-chapters', ['--month' => '2026-03'])->assertSuccessful();
@@ -717,7 +717,7 @@ class ChapterTest extends TestCase
 
     public function test_material_is_bounded_by_a_total_budget_on_active_periods(): void
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         $march = Carbon::parse('2026-03-01');
         // Many long entries — past the point where the per-entry ceiling alone
         // (160 * 1500 ≈ 240k) would blow the material size.
@@ -744,7 +744,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         Queue::fake();
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(6)->for($user)->create(['entry_date' => Carbon::parse('2026-03-10')]);
 
         $this->artisan('quest:generate-monthly-chapters', ['--month' => '2026-03'])->assertSuccessful();
@@ -757,7 +757,7 @@ class ChapterTest extends TestCase
         config(['services.anthropic.chapters_enabled' => true]);
         Queue::fake();
 
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(6)->for($user)->create(['entry_date' => Carbon::parse('2026-03-10')]);
         // A ready chapter already exists → the command's whereNotExists must skip
         // dispatch (isolates the dispatch-level idempotency, not the job guard).
@@ -792,7 +792,7 @@ class ChapterTest extends TestCase
 
     private function optedUserWithAllTimeEntries(): User
     {
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()
             ->count(ChapterGenerator::MIN_ALLTIME_ENTRIES)
             ->for($user)
@@ -833,7 +833,7 @@ class ChapterTest extends TestCase
     {
         Http::fake();
         config(['services.anthropic.key' => 'test-key']);
-        $user = User::factory()->optedIntoAi()->create();
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
         Entry::factory()->count(5)->for($user)->create(['entry_date' => Carbon::parse('2025-06-15')]);
 
         $this->assertNull(app(ChapterGenerator::class)->allTime($user));

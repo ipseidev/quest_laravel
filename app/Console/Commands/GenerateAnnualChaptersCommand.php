@@ -46,6 +46,7 @@ class GenerateAnnualChaptersCommand extends Command
         $users = User::query()
             ->whereIn('id', $userIds)
             ->where('ai_chapters_opt_in', true)
+            ->withActiveSubscription()
             ->whereNotExists(function ($query) use ($start) {
                 $query->select(DB::raw(1))
                     ->from('chapters')
