@@ -72,6 +72,14 @@
         ul { padding-left: 1.25rem; }
         li { margin: 0.3rem 0; }
         .updated { color: var(--text-tertiary); font-size: 0.9rem; margin: 0 0 2rem; }
+        .table-wrap { overflow-x: auto; margin: 0.75rem 0 0; }
+        table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+        th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+        th { color: var(--text-secondary); font-weight: 600; }
+        thead th { white-space: nowrap; }
+        .identity { list-style: none; padding: 0; margin: 0.5rem 0 0; }
+        .identity li { margin: 0.35rem 0; }
+        .identity strong { color: var(--text-secondary); font-weight: 600; }
         .notice {
             background: color-mix(in srgb, var(--accent) 12%, transparent);
             border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
@@ -99,6 +107,7 @@
                 <a href="{{ route('legal.privacy', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Confidentialité' : 'Privacy' }}</a>
                 <a href="{{ route('legal.terms', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Conditions' : 'Terms' }}</a>
                 <a href="{{ route('legal.support', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Aide' : 'Support' }}</a>
+                <a href="{{ route('legal.notice', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Mentions légales' : 'Legal notice' }}</a>
                 <span class="lang">
                     <a href="?lang=en">EN</a> · <a href="?lang=fr">FR</a>
                 </span>
@@ -112,7 +121,11 @@
                 {{ $lang === 'fr'
                     ? 'Nacre — un journal où ta vie devient une histoire. Contact : '
                     : 'Nacre — a journal where your life becomes a story. Contact: ' }}
-                <a href="mailto:contact@affiniteam.io">contact@affiniteam.io</a>
+                <a href="mailto:{{ $legal['contact_email'] }}">{{ $legal['contact_email'] }}</a>
+            </p>
+            <p>
+                {{ $lang === 'fr' ? 'Éditeur : ' : 'Published by ' }}{{ $legal['publisher']['name'] }}{{ $lang === 'fr' ? ', entrepreneur individuel — SIREN ' : ', sole trader — SIREN ' }}{{ $legal['publisher']['siren'] }}.
+                <a href="{{ route('legal.notice', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Mentions légales' : 'Legal notice' }}</a>
             </p>
         </footer>
     </main>
