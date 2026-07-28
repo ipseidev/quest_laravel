@@ -1,5 +1,6 @@
 <?php
 
+use App\Exceptions\UnsupportedImageException;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\RedirectLegacyHost;
 use App\Http\Middleware\ValidateJsonBody;
@@ -12,6 +13,7 @@ use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
@@ -115,5 +117,24 @@ return Application::configure(basePath: dirname(__DIR__))
                 'error' => 'bad_request',
                 'message' => 'Malformed request body.',
             ], 400);
+        });
+
+        // An image the server cannot decode. Answered 415 rather than 500 because the
+        // client retries 5xx with exponential backoff, and no number of retries makes
+        // an undecodable file decodable — the earlier 500 produced request storms.
+        // The cause is logged at error level because it is an operator problem far more
+        // often than a client one: a missing imagick extension, an ImageMagick policy
+        // denying the coder, or libheif with no HEVC decoder all land here.
+        $exceptions->render(function (UnsupportedImageException $e, Request $request) {
+            Log::error('quest.upload.undecodable_image', [
+                'user_id' => $request->user()?->id,
+                'path' => $request->path(),
+                'cause' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'error' => 'unsupported_media_type',
+                'message' => 'The uploaded file type is not supported.',
+            ], 415);
         });
     })->create();

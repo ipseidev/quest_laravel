@@ -2,11 +2,14 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\BinaryStorageException;
 use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
 use App\Models\User;
+use App\Services\Upload\BinaryUploadService;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
@@ -35,23 +38,46 @@ class UploadTest extends TestCase
     }
 
     /**
-     * Build an UploadedFile whose underlying bytes are a real (10x10) PNG so
-     * Imagick can read it, but whose MIME advertised to the controller is
-     * image/heic. Lets us exercise the HEIC → JPEG path without bundling a
-     * real .heic fixture.
+     * A genuine 10x10 HEIC (HEVC-coded, `heic` brand), the same container an iPhone
+     * produces.
+     *
+     * This used to be a PNG advertised as image/heic, which made all three HEIC tests
+     * pass without ever exercising a HEIC decode — they were green while production
+     * failed on every photo. If this fixture is ever swapped for a stand-in, the tests
+     * stop testing anything.
      */
-    private function fakeHeicUpload(string $name = 'photo.heic'): UploadedFile
+    private function realHeicUpload(string $name = 'photo.heic', string $mime = 'image/heic'): UploadedFile
     {
-        $pngBytes = base64_decode(
-            'iVBORw0KGgoAAAANSUhEUgAAAAoAAAAKAQMAAAC3/F3+AAAA'
-            .'IGNIUk0AAHomAACAhAAA+gAAAIDoAAB1MAAA6mAAADqYAAAXcJy6UTwAAAAG'
-            .'UExURf8AAP///0EdNBEAAAABYktHRAH/Ai3eAAAAC0lEQVQI12NgwAcAAB4A'
-            .'AW6FRzIAAAAASUVORK5CYII='
-        );
         $tmp = tempnam(sys_get_temp_dir(), 'heic_');
-        file_put_contents($tmp, $pngBytes);
+        copy(self::heicFixturePath(), $tmp);
 
-        return new UploadedFile($tmp, $name, 'image/heic', null, true);
+        return new UploadedFile($tmp, $name, $mime, null, true);
+    }
+
+    private static function heicFixturePath(): string
+    {
+        return base_path('tests/Fixtures/real.heic');
+    }
+
+    /**
+     * Skip loudly rather than pass quietly when the host cannot decode HEIC.
+     *
+     * Decoding needs three things that are all environment, not code: the imagick
+     * extension, an ImageMagick policy that grants the HEIC coder read rights (the
+     * hardened default denies every coder then re-allows only GIF/JPEG/PNG/WEBP), and
+     * libheif with an HEVC decoder. A skipped test says so; a faked one does not.
+     */
+    private function skipWithoutHeicDecoding(): void
+    {
+        if (! class_exists(\Imagick::class)) {
+            $this->markTestSkipped('The imagick extension is not installed.');
+        }
+
+        try {
+            (new \Imagick)->readImageBlob((string) file_get_contents(self::heicFixturePath()));
+        } catch (\Throwable $e) {
+            $this->markTestSkipped('This ImageMagick cannot decode HEIC: '.$e->getMessage());
+        }
     }
 
     public function test_b3_upload_valid_image_to_attachment(): void
@@ -238,11 +264,13 @@ class UploadTest extends TestCase
 
     public function test_heic_attachment_is_re_encoded_to_jpeg(): void
     {
+        $this->skipWithoutHeicDecoding();
+
         $entry = Entry::factory()->for($this->user)->create();
         $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
 
         $response = $this->withHeaders($this->bearer())
-            ->post('/api/uploads/attachments/'.$att->id, ['file' => $this->fakeHeicUpload()]);
+            ->post('/api/uploads/attachments/'.$att->id, ['file' => $this->realHeicUpload()]);
 
         $response->assertOk();
         $remoteUri = $response->json('remoteUri');
@@ -262,10 +290,12 @@ class UploadTest extends TestCase
 
     public function test_heic_character_photo_is_re_encoded_to_jpeg(): void
     {
+        $this->skipWithoutHeicDecoding();
+
         $character = Character::factory()->for($this->user)->create(['remote_photo_uri' => null]);
 
         $response = $this->withHeaders($this->bearer())
-            ->post('/api/uploads/character-photos/'.$character->id, ['file' => $this->fakeHeicUpload('avatar.heic')]);
+            ->post('/api/uploads/character-photos/'.$character->id, ['file' => $this->realHeicUpload('avatar.heic')]);
 
         $response->assertOk();
         $this->assertStringEndsWith('.jpg', $response->json('remoteUri'));
@@ -276,17 +306,107 @@ class UploadTest extends TestCase
 
     public function test_heif_attachment_is_re_encoded_to_jpeg(): void
     {
+        $this->skipWithoutHeicDecoding();
+
         $entry = Entry::factory()->for($this->user)->create();
         $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
 
-        $heif = $this->fakeHeicUpload('photo.heif');
-        $heif = new UploadedFile($heif->getPathname(), 'photo.heif', 'image/heif', null, true);
-
-        $response = $this->withHeaders($this->bearer())
-            ->post('/api/uploads/attachments/'.$att->id, ['file' => $heif]);
+        $response = $this->withHeaders($this->bearer())->post(
+            '/api/uploads/attachments/'.$att->id,
+            ['file' => $this->realHeicUpload('photo.heif', 'image/heif')]
+        );
 
         $response->assertOk();
         $this->assertStringEndsWith('.jpg', $response->json('remoteUri'));
+    }
+
+    /**
+     * The declared Content-Type is a claim; the ISOBMFF brand is a fact. Routing on the
+     * bytes is what makes the re-encode independent of the host's libmagic, which
+     * recognises HEIC on some Ubuntu releases and not others.
+     */
+    public function test_a_heic_declared_as_jpeg_is_still_re_encoded(): void
+    {
+        $this->skipWithoutHeicDecoding();
+
+        $entry = Entry::factory()->for($this->user)->create();
+        $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $response = $this->withHeaders($this->bearer())->post(
+            '/api/uploads/attachments/'.$att->id,
+            ['file' => $this->realHeicUpload('photo.jpg', 'image/jpeg')]
+        );
+
+        $response->assertOk();
+        $expectedPath = 'attachments/'.$this->user->id.'/'.$att->id.'.jpg';
+        Storage::disk('s3')->assertExists($expectedPath);
+        $this->assertSame("\xFF\xD8\xFF", substr(Storage::disk('s3')->get($expectedPath), 0, 3));
+    }
+
+    /**
+     * Voice notes are ISOBMFF as well — an .m4a carries an `ftyp` box too. Only
+     * still-image brands may route to the JPEG encoder, or every audio upload would be
+     * handed to Imagick and fail.
+     */
+    public function test_an_audio_upload_is_not_mistaken_for_a_heif_image(): void
+    {
+        $entry = Entry::factory()->for($this->user)->create();
+        $audio = EntryAudio::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'm4a_');
+        // ftyp box with the brands an .m4a actually carries, none of them HEIF.
+        file_put_contents($tmp, "\x00\x00\x00\x18ftypM4A \x00\x00\x02\x00isomiso2".str_repeat("\x00", 64));
+        $file = new UploadedFile($tmp, 'note.m4a', 'audio/mp4', null, true);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/audio/'.$audio->id, ['file' => $file])
+            ->assertOk();
+
+        Storage::disk('s3')->assertExists('audio/'.$this->user->id.'/'.$audio->id.'.m4a');
+    }
+
+    /**
+     * A file whose brand says HEIF but whose payload cannot be decoded must terminate
+     * the request, not invite a retry. The client's HTTP layer retries 5xx with
+     * exponential backoff, so the previous 500 turned one broken photo into a request
+     * storm — five attempts in twenty-five seconds, indefinitely.
+     */
+    public function test_an_undecodable_heif_returns_415_and_records_nothing(): void
+    {
+        $entry = Entry::factory()->for($this->user)->create();
+        $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'heic_');
+        // A well-formed ftyp box announcing `heic`, followed by nothing decodable.
+        file_put_contents($tmp, "\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic".str_repeat("\x00", 128));
+        $file = new UploadedFile($tmp, 'broken.heic', 'image/heic', null, true);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att->id, ['file' => $file])
+            ->assertStatus(415)
+            ->assertJsonPath('error', 'unsupported_media_type');
+
+        $att->refresh();
+        $this->assertNull($att->remote_uri);
+        $this->assertEmpty(Storage::disk('s3')->files('attachments/'.$this->user->id));
+    }
+
+    /**
+     * The `s3` disk runs with 'throw' => false, so a failed write returns false instead
+     * of raising. Unchecked, that stored nothing while the caller recorded a remote_uri
+     * — the shape of the bug that left the bucket empty for weeks.
+     */
+    public function test_a_failed_write_is_not_reported_as_success(): void
+    {
+        $disk = \Mockery::mock(Filesystem::class);
+        $disk->shouldReceive('putFileAs')->once()->andReturn(false);
+        Storage::shouldReceive('disk')->with('s3')->andReturn($disk);
+
+        $file = UploadedFile::fake()->create('photo.jpg', 10, 'image/jpeg');
+
+        $this->expectException(BinaryStorageException::class);
+
+        app(BinaryUploadService::class)->store('attachments', $this->user->id, Str::uuid()->toString(), $file);
     }
 
     public function test_jpeg_upload_is_not_re_encoded(): void
