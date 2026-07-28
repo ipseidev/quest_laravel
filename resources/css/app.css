@@ -70,7 +70,18 @@
         -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
 
-    /* Display sizes live in one place so headings stay on a scale. */
+    /* Display sizes live in one place so headings stay on a scale.
+     *
+     * `hero` is the only fluid step, and it exists so the home h1 can dominate on a
+     * wide screen without dragging anything else with it. It is deliberately NOT a
+     * clamp on --text-display: that token also sets the amounts in the pricing
+     * table, where a fluid size would print "44,99 €" at 72 px.
+     *
+     * 52 px up to 390 px wide (unchanged on mobile, where the h1 is already the
+     * strongest thing on screen), 59 px at 768, 70 px at 1024, 72 px from 1195 up. */
+    --text-hero: clamp(3.25rem, 1.55rem + 4.4vw, 4.5rem);
+    --text-hero--line-height: 1.03;
+    --text-hero--letter-spacing: -0.03em;
     --text-display: 3.25rem;
     --text-display--line-height: 1.08;
     --text-display--letter-spacing: -0.025em;

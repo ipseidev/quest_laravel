@@ -193,6 +193,12 @@ class SiteTest extends TestCase
 
     public function test_robots_points_at_the_sitemap_and_keeps_the_api_out(): void
     {
+        // A file in public/ is served by the web server before the request ever
+        // reaches the router, so this assertion is the only thing standing between
+        // `SitemapController::robots()` and becoming dead code again. `$this->get()`
+        // enters through the router and would keep passing regardless.
+        $this->assertFileDoesNotExist(public_path('robots.txt'), 'A static public/robots.txt shadows the robots route.');
+
         $this->getPage('/robots.txt')
             ->assertOk()
             ->assertSee(config('site.url').'/sitemap.xml')

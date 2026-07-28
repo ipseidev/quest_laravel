@@ -27,7 +27,7 @@ return [
         'download_android' => 'Get it on Google Play',
         'soon_ios' => 'Coming to the App Store',
         'soon_android' => 'Coming to Google Play',
-        'previous_name_note' => 'The App Store listing is still titled :store_name — the new name ships with the next update.',
+        'previous_name_note' => 'Same app: the App Store listing is still titled :store_name.',
         'learn_more' => 'Learn more',
         'free_note' => 'Free, and no account required: the app works entirely on your phone.',
     ],
@@ -36,7 +36,9 @@ return [
         'label' => 'Main navigation',
         'home' => 'Home',
         'menu' => 'Open menu',
-        'download' => 'Download',
+        // The header button is visible down to 320 px wide, where "Get the app"
+        // fits the row and "Download" does not.
+        'install' => 'Get the app',
         'switch_language' => 'View this page in',
     ],
 
@@ -63,10 +65,17 @@ return [
         ],
 
         'hero' => [
-            'eyebrow' => 'Private journal · iOS and Android',
+            'eyebrow' => 'Private journal for iPhone and iPad',
             'title' => 'Your life is already a story.',
-            'lead' => 'Nacre is a journal where every page can attach to what you are living through and the people who matter. A year later you are not rereading a pile of dates — you are rereading a thread.',
-            'shot_alt' => 'A journal entry in Nacre: two photos, a mood, a linked person, and the day’s writing.',
+            'promise' => 'Read your life back by thread, not by date.',
+            'lead' => 'Every page can attach to what you are living through and the people who matter. Open a quest or a person: everything that touches it comes back in order.',
+            'proof' => [
+                'Free, no page limit',
+                'No account needed',
+                'No ads, no trackers',
+                'Made in France',
+            ],
+            'shot_alt' => 'A journal entry in Nacre: two photos, a mood, a linked quest and person, and the day’s writing.',
         ],
 
         'problem' => [
@@ -194,7 +203,7 @@ return [
         'pricing' => [
             'eyebrow' => 'Pricing',
             'title' => 'Free to write. Paid to have it everywhere.',
-            'lead' => 'Writing, linking, rereading, searching and exporting are free, with no page limit. Nacre Plus adds sync across your devices, a Chapter every month, and all :themes_total themes — :monthly a month, or :annual a year.',
+            'lead' => 'Writing, linking, rereading, searching and exporting are free, with no page limit. Nacre Plus adds sync across your devices, a Chapter every month, and :themes_plus more themes, at :monthly a month or :annual a year.',
             'link' => 'See what each plan includes',
         ],
 

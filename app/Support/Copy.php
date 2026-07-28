@@ -42,6 +42,9 @@ final class Copy
             'quota' => $plus['free_quota'],
             'themes_total' => (string) $facts['themes_total'],
             'themes_free' => (string) $facts['themes_free'],
+            // What Plus actually unlocks. Derived, not configured: the copy used to
+            // say Plus "adds the 7 themes" when 3 of them are already free.
+            'themes_plus' => (string) ($facts['themes_total'] - $facts['themes_free']),
             'fonts' => (string) $facts['fonts'],
             'retention' => (string) $facts['trash_retention_days'],
             'ai_provider' => $facts['ai_provider'],

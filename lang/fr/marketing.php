@@ -29,7 +29,7 @@ return [
         'download_android' => 'Télécharger sur Google Play',
         'soon_ios' => 'Bientôt sur l’App Store',
         'soon_android' => 'Bientôt sur Google Play',
-        'previous_name_note' => 'Sur l’App Store, la fiche s’appelle encore :store_name — le nouveau nom arrive avec la prochaine mise à jour.',
+        'previous_name_note' => 'C’est bien la même app : sur l’App Store, la fiche porte encore le nom :store_name.',
         'learn_more' => 'En savoir plus',
         'free_note' => 'Gratuit, et sans compte obligatoire : l’app fonctionne entièrement sur ton téléphone.',
     ],
@@ -38,7 +38,9 @@ return [
         'label' => 'Navigation principale',
         'home' => 'Accueil',
         'menu' => 'Ouvrir le menu',
-        'download' => 'Télécharger',
+        // Le bouton du header est visible jusqu'à 320 px de large : « Installer »
+        // tient dans la rangée là où « Télécharger » la faisait déborder.
+        'install' => 'Installer',
         'switch_language' => 'Voir cette page en',
     ],
 
@@ -65,16 +67,36 @@ return [
         ],
 
         'hero' => [
-            'eyebrow' => 'Journal intime · iOS et Android',
+            'eyebrow' => 'Journal intime pour iPhone et iPad',
             'title' => 'Ta vie est déjà une histoire.',
-            'lead' => 'Nacre est un journal intime où chaque page se rattache à ce que tu traverses et aux gens qui comptent. Un an plus tard, tu ne relis pas une pile de dates : tu relis un fil.',
-            'shot_alt' => 'Une entrée de journal dans Nacre : deux photos, une humeur, une personne liée et le texte de la journée.',
+            /*
+             * La ligne qui porte le différenciateur. Elle est rendue juste sous le
+             * h1, à la taille d'un h2 : c'est la seule phrase que retient un
+             * visiteur qui ne lit que le premier écran.
+             */
+            'promise' => 'Relis ta vie par fil, pas par date.',
+            'lead' => 'Chaque page se rattache à ce que tu traverses et aux gens qui comptent. Ouvre une quête ou une personne : tout ce qui la concerne remonte dans l’ordre.',
+            /*
+             * Quatre faits déjà affirmés ailleurs dans ce fichier (privacy.points,
+             * pricing.lead, footer.tagline). Rien de neuf n'est promis ici : c'est
+             * le seul canal de réassurance disponible tant qu'il n'y a pas d'avis
+             * à citer. Volontairement courts : ils sont rendus sur une seule ligne
+             * séparée par des points médians, et chaque ligne gagnée au-dessus de
+             * la ligne de flottaison est une ligne de capture visible.
+             */
+            'proof' => [
+                'Gratuit, sans limite de pages',
+                'Sans compte',
+                'Sans publicité ni traceur',
+                'Édité en France',
+            ],
+            'shot_alt' => 'Une entrée de journal dans Nacre : deux photos, une humeur, une quête et une personne liées, et le texte de la journée.',
         ],
 
         'problem' => [
             'eyebrow' => 'Pourquoi ça ne tient pas',
             'title' => 'Tu as déjà essayé de tenir un journal.',
-            'lead' => 'Et tu as probablement arrêté. Pas par manque de volonté — parce qu’un journal classique ne te rend rien.',
+            'lead' => 'Et tu as probablement arrêté. Pas par manque de volonté : un journal classique ne te rend rien.',
             'points' => [
                 [
                     'title' => 'Tu écris dans le vide.',
@@ -86,7 +108,7 @@ return [
                 ],
                 [
                     'title' => 'La page blanche gagne.',
-                    'body' => 'Il faudrait avoir quelque chose à dire. Certains soirs tu n’as qu’une humeur et deux phrases — et ça devrait suffire.',
+                    'body' => 'Il faudrait avoir quelque chose à dire. Certains soirs tu n’as qu’une humeur et deux phrases, et ça devrait suffire.',
                 ],
             ],
         ],
@@ -106,7 +128,7 @@ return [
                 [
                     'key' => 'features.quests',
                     'title' => 'Les quêtes',
-                    'body' => 'Une quête principale — la grande question de ton année. Des quêtes secondaires — un projet, une relation compliquée, un déménagement. Rattache une entrée d’un tap, ou pas du tout.',
+                    'body' => 'Une quête principale : la grande question de ton année. Des quêtes secondaires : un projet, une relation compliquée, un déménagement. Rattache une entrée d’un tap, ou pas du tout.',
                     'shot' => 'quests',
                     'alt' => 'L’écran Quêtes de Nacre, avec une quête principale et des quêtes secondaires.',
                 ],
@@ -131,7 +153,7 @@ return [
             'eyebrow' => 'Ce qu’un journal chronologique ne peut pas faire',
             'title' => 'Relire par fil, pas par date.',
             'lead' => 'C’est toute la différence. Ouvre « Trouver ce que je veux de ce travail » et tu vois les onze pages qui l’ont ponctué, dans l’ordre, sur huit mois. Ouvre « Priya » et tu revois chaque fois qu’elle est apparue.',
-            'body' => 'Et ça ne se rattrape pas après coup. Au bout de trois ans, ce que tu as construit — tes pages croisées à tes quêtes et à tes personnes — n’existe nulle part ailleurs et ne se réimporte pas.',
+            'body' => 'Et ça ne se rattrape pas après coup. Au bout de trois ans, ce que tu as construit, tes pages croisées à tes quêtes et à tes personnes, n’existe nulle part ailleurs et ne se réimporte pas.',
             'shot_alt' => 'Une quête ouverte dans Nacre, avec la suite des entrées qui l’ont traversée.',
         ],
 
@@ -144,7 +166,7 @@ return [
                 'Photo, appareil photo, note vocale, lieu : dans la barre de l’éditeur, pas au fond d’un menu.',
                 'Enregistrement automatique pendant que tu écris. Rien à valider, rien à perdre.',
                 'Une question du jour, les soirs où la page blanche gagne.',
-                '« Ce jour-là » te ressort tes anciennes pages — avec les quêtes actives et les gens présents à l’époque.',
+                '« Ce jour-là » te ressort tes anciennes pages, avec les quêtes actives et les gens présents à l’époque.',
                 'Calendrier, recherche plein texte, corbeille de :retention jours.',
             ],
         ],
@@ -176,7 +198,7 @@ return [
         'privacy' => [
             'eyebrow' => 'Vie privée',
             'title' => 'Ton journal reste à toi.',
-            'lead' => 'Ce qui est vrai, dit précisément — y compris là où ça nous coûte.',
+            'lead' => 'Ce qui est vrai, dit précisément, y compris là où ça nous coûte.',
             'points' => [
                 'Le compte est optionnel. Sans compte, tout reste sur ton téléphone.',
                 'Aucun analytics, aucun traceur tiers, aucune publicité.',
@@ -190,13 +212,13 @@ return [
 
         'nacre' => [
             'title' => 'Pourquoi « Nacre ».',
-            'body' => 'La nacre ne se fabrique pas. Elle se dépose — couche après couche, année après année, jusqu’à devenir autre chose. C’est exactement ce que fait un journal qu’on tient vraiment : le premier mois ne vaut presque rien, et le troisième an ne se remplace pas.',
+            'body' => 'La nacre ne se fabrique pas. Elle se dépose, couche après couche, année après année, jusqu’à devenir autre chose. C’est exactement ce que fait un journal qu’on tient vraiment : le premier mois ne vaut presque rien, et le troisième an ne se remplace pas.',
         ],
 
         'pricing' => [
             'eyebrow' => 'Tarifs',
-            'title' => 'Gratuit pour écrire. Payant pour tout retrouver partout.',
-            'lead' => 'Écrire, relier, relire, chercher et exporter : gratuit, sans limite de pages. Nacre Plus ajoute la synchronisation entre tes appareils, un Chapitre chaque mois et les :themes_total thèmes — :monthly par mois, ou :annual par an.',
+            'title' => 'Gratuit pour écrire et pour relire. Payant pour l’avoir sur tous tes appareils.',
+            'lead' => 'Écrire, relier, relire, chercher et exporter : gratuit, sans limite de pages. Nacre Plus ajoute la synchronisation entre tes appareils, un Chapitre chaque mois et :themes_plus thèmes de plus, à :monthly par mois ou :annual par an.',
             'link' => 'Voir le détail des deux formules',
         ],
 
@@ -211,7 +233,7 @@ return [
             ],
             [
                 'q' => 'Est-ce qu’une IA lit mon journal ?',
-                'a' => 'Pas sans que tu l’aies demandé. Les Chapitres — les récits que Nacre écrit à partir de ton journal — sont désactivés par défaut. Si tu les actives, le texte de tes entrées est envoyé à notre prestataire d’IA, :ai_provider, pour écrire le récit. Tu peux les couper à tout moment.',
+                'a' => 'Pas sans que tu l’aies demandé. Les Chapitres, les récits que Nacre écrit à partir de ton journal, sont désactivés par défaut. Si tu les actives, le texte de tes entrées est envoyé à notre prestataire d’IA, :ai_provider, pour écrire le récit. Tu peux les couper à tout moment.',
             ],
             [
                 'q' => 'Est-ce que je peux récupérer mes données ?',
@@ -537,7 +559,7 @@ return [
             'items' => [
                 'Tes pages sur tous tes appareils, dans les deux sens',
                 'Un nouveau Chapitre chaque mois, et à chaque fin d’arc',
-                'Les :themes_total thèmes, dont sépia, forêt, océan et coucher de soleil',
+                'Les :themes_total thèmes, dont sépia, forêt, océan et crépuscule',
                 'Photos et notes vocales sauvegardées sans limite de volume',
                 'Le soutien d’un développeur indépendant, sans investisseurs à rembourser',
             ],

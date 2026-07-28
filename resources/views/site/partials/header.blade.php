@@ -49,14 +49,20 @@
                 @endif
             @endforeach
 
-            {{-- Hidden on the wrapper, not on the button. `hidden` on the button
-                 itself loses to the `inline-flex` in its own base classes — same CSS
-                 layer, so stylesheet order decides and the class attribute's order is
-                 irrelevant. Left on the button, it stayed visible below `sm` and
-                 pushed the document wider than the viewport. --}}
-            <div class="hidden sm:block">
-                <x-site.button :href="SiteMap::path('download', $locale)" class="px-5! py-2!">
-                    {{ __('marketing.nav.download') }}
+            {{-- Visible at every width, including mobile: this is the only permanent
+                 install path on a page that is 14 000 px tall, and mobile is the one
+                 device that can actually install the app. It used to be `hidden
+                 sm:block`, which left ~15 screens of scroll with no reachable CTA.
+
+                 The label is the short one ("Installer", not "Télécharger") so the
+                 row still fits at 320 px next to the logo, the language pill and the
+                 menu button. Any width class belongs on this wrapper, never on the
+                 button: `hidden` on the button loses to the `inline-flex` in its own
+                 base classes — same CSS layer, so stylesheet order decides. --}}
+            <div>
+                <x-site.button :href="SiteMap::path('download', $locale)"
+                               class="px-4! py-2! text-[0.8125rem]! sm:px-5! sm:text-[0.9375rem]!">
+                    {{ __('marketing.nav.install') }}
                 </x-site.button>
             </div>
 

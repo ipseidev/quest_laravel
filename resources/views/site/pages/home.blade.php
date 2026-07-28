@@ -24,21 +24,46 @@
     <section class="night-sky overflow-hidden">
         <div aria-hidden="true" class="starfield"></div>
 
-        <div class="container-page relative grid items-center gap-14 py-20 sm:py-24 lg:grid-cols-[1.05fr_auto] lg:gap-20 lg:pb-0">
+        {{-- The mobile padding and gap are tighter than the section default on
+             purpose: on a 390x844 screen every pixel spent above the device is a
+             pixel of product the visitor does not see before scrolling. --}}
+        <div class="container-page relative grid items-center gap-9 py-12 sm:gap-14 sm:py-24 lg:grid-cols-[1.05fr_auto] lg:gap-20 lg:pb-0">
             <div>
                 <p class="mb-5 text-sm font-semibold tracking-[0.12em] text-accent-soft uppercase">
                     {{ $hero['eyebrow'] }}
                 </p>
 
-                <h1 class="text-display text-balance">{{ $hero['title'] }}</h1>
+                {{-- `text-hero` rather than `text-display`: only this h1 scales with
+                     the viewport, because `text-display` also sets the amounts on
+                     /tarifs, where a fluid size would print "44,99 €" at 72 px. --}}
+                <h1 class="text-hero text-balance">{{ $hero['title'] }}</h1>
+
+                {{-- The differentiator, at h2 size, directly under the h1. It used to
+                     be the 33rd word of the grey paragraph below — the one line a
+                     visitor who never scrolls would have missed. --}}
+                <p class="mt-5 max-w-xl text-title text-balance">{{ $hero['promise'] }}</p>
 
                 <p class="mt-6 max-w-xl text-lg text-muted sm:text-xl">{{ $hero['lead'] }}</p>
 
-                <div class="mt-9">
-                    <x-site.store-buttons />
+                <div class="mt-8">
+                    <x-site.store-buttons :note="false" :soon="false" />
                 </div>
 
-                <p class="mt-6 max-w-md text-sm text-faint">{{ Copy::text('marketing.common.free_note') }}</p>
+                {{-- Reassurance instead of a caveat: the transitional note about the
+                     App Store title moved to the closing CTA.
+
+                     Rendered as one wrapped run rather than a bulleted column, because
+                     this sits between the buttons and the screenshot on mobile: four
+                     stacked lines pushed the device off the fold entirely, and the
+                     product being visible is the whole point of putting a device
+                     there. No separator glyph on purpose — a `::before` bullet is
+                     dimmer than the text it separates at this size, and it lands at
+                     the start of the line whenever the run wraps. --}}
+                <ul role="list" class="mt-6 flex max-w-2xl flex-wrap gap-x-6 gap-y-1.5 text-sm text-faint">
+                    @foreach ($hero['proof'] as $item)
+                        <li>{{ $item }}</li>
+                    @endforeach
+                </ul>
             </div>
 
             {{-- On wide screens the device runs off the bottom edge of the hero
@@ -109,6 +134,10 @@
             <h2 class="text-display text-balance">{{ $replay['title'] }}</h2>
             <p class="mt-7 text-lg text-muted sm:text-xl">{{ $replay['lead'] }}</p>
             <p class="mt-5 text-lg text-muted">{{ $replay['body'] }}</p>
+
+            <div class="mt-11 flex justify-center">
+                <x-site.store-buttons align="center" :note="false" />
+            </div>
         </div>
     </x-site.section>
 
@@ -144,6 +173,10 @@
                     <p class="mt-3 text-muted">{{ $item['body'] }}</p>
                 </div>
             @endforeach
+        </div>
+
+        <div class="mt-14 flex justify-center">
+            <x-site.store-buttons align="center" :note="false" />
         </div>
     </x-site.section>
 
@@ -183,7 +216,8 @@
          the value of a journal is what accumulates in it. --}}
     <x-site.section tone="ink">
         <div class="mx-auto flex max-w-2xl flex-col items-center text-center">
-            <img src="/img/pearl-240.png" alt="" width="112" height="112" class="mb-8 size-28" aria-hidden="true">
+            <img src="/img/pearl-240.png" alt="" width="112" height="112" class="mb-8 size-28"
+                 loading="lazy" decoding="async" aria-hidden="true">
             <h2 class="text-title text-balance">{{ $nacre['title'] }}</h2>
             <p class="mt-5 text-lg text-muted">{{ $nacre['body'] }}</p>
         </div>
@@ -195,11 +229,18 @@
         :lead="$pricingBlock['lead']"
         align="center"
         tone="surface">
-        <p class="mt-8 text-center">
+        {{-- The install button comes first here, and the pricing page second. This
+             is where a visitor confirms the app is free; sending them to a page
+             about a 6,99 € subscription instead of to the free download put a
+             price between the intent and the act. --}}
+        <div class="mt-10 flex justify-center">
+            <x-site.store-buttons align="center" :note="false" />
+        </div>
+
+        <p class="mt-6 text-center text-sm">
             <a href="{{ SiteMap::path('pricing', $locale) }}"
-               class="inline-flex items-center gap-1.5 font-semibold text-accent-soft hover:underline">
+               class="text-faint underline decoration-line-bright underline-offset-4 transition-colors hover:text-accent-soft">
                 {{ $pricingBlock['link'] }}
-                <span aria-hidden="true">&rarr;</span>
             </a>
         </p>
     </x-site.section>
@@ -242,6 +283,8 @@
             <div class="mt-10 flex justify-center">
                 <x-site.store-buttons align="center" />
             </div>
+
+            <p class="mx-auto mt-6 max-w-md text-sm text-faint">{{ Copy::text('marketing.common.free_note') }}</p>
         </div>
     </section>
 

@@ -21,8 +21,15 @@
         $stores['android']['url'] ? $stores['android']['min_os'] : null,
     ]));
 
+    // Same locale probe as `x-site.phone`, so the structured data advertises the
+    // captures a visitor in this language actually sees. Hardcoding /en/ meant the
+    // French page declared English screenshots to search engines.
     $screenshots = array_map(
-        fn (string $slug): string => $site.'/img/app/en/'.$slug.'-960.webp',
+        function (string $slug) use ($site, $locale): string {
+            $dir = file_exists(public_path("img/app/{$locale}/{$slug}-960.webp")) ? $locale : 'en';
+
+            return $site."/img/app/{$dir}/{$slug}-960.webp";
+        },
         ['editor', 'quests', 'person', 'constellation', 'chapters'],
     );
 

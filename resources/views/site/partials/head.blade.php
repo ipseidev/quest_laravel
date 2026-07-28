@@ -37,9 +37,16 @@
 @endisset
 
 {{-- Fonts are same-origin, so preloading them removes a full round trip from the
-     point where the first heading can paint. --}}
+     point where the first heading can paint.
+
+     Only the 600 is preloaded, and only the 600 should be: every heading on the
+     site is Lora 600, so it is the LCP candidate on every page. The 500 and the
+     400-italic faces are declared in app.css but never matched by any selector
+     (`font-weight:500` and `font-style:italic` each appear exactly once in the
+     built stylesheet — inside their own @font-face), so a browser never fetches
+     them. Preloading the 500 downloaded 19 kB at high priority on the critical
+     path of every page for zero glyphs. --}}
 <link rel="preload" href="/fonts/lora-600.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/fonts/lora-500.woff2" as="font" type="font/woff2" crossorigin>
 
 <meta name="theme-color" content="#0f0e17">
 <meta name="color-scheme" content="dark">

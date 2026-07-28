@@ -36,11 +36,16 @@
             </div>
 
             @foreach ($columns as $name => $keys)
+                {{-- A <p>, not an <h2>. The <nav> already carries the same string as
+                     its accessible name, so a heading here made a screen reader
+                     announce each column twice and put three column labels into the
+                     document outline of all 32 pages, where a crawler reads them as
+                     table-of-contents headings. --}}
                 <nav aria-label="{{ __("marketing.footer.{$name}") }}">
-                    <h2 class="mb-4 text-sm font-semibold tracking-[0.1em] text-faint uppercase"
-                        style="font-family: var(--font-sans)">
+                    <p class="mb-4 text-sm font-semibold tracking-[0.1em] text-faint uppercase"
+                       style="font-family: var(--font-sans)">
                         {{ __("marketing.footer.{$name}") }}
-                    </h2>
+                    </p>
                     <ul class="space-y-2.5 text-sm">
                         @foreach ($keys as $key)
                             <li>
