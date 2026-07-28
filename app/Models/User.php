@@ -53,6 +53,9 @@ class User extends Authenticatable
             'password' => 'hashed',
             'ai_chapters_opt_in' => 'boolean',
             'subscription_expires_at' => 'datetime',
+            // Postgres returns bigint as a string over PDO; cast so the webhook's
+            // out-of-order comparison is an integer comparison either way.
+            'subscription_event_at_ms' => 'integer',
             'sample_chapter_generated_at' => 'datetime',
         ];
     }
@@ -71,12 +74,15 @@ class User extends Authenticatable
     /**
      * Whether this account holds an active paid entitlement ("Nacre Plus").
      *
-     * Source of truth is `subscription_product_id` + `subscription_expires_at`,
-     * fed by the RevenueCat webhook (deferred — see MONETIZATION_PLAN P2.1). A
-     * null product id = free account. A set product id with a future expiry — or
-     * a null expiry, which marks a non-expiring "lifetime" entitlement — is
-     * active; a past expiry means it lapsed. Chat + interviewer gate on this via
-     * hasAiAccess(); chapters are retrofitted to it in P1.3.
+     * Source of truth is `subscription_product_id` + `subscription_expires_at`, written
+     * only by `App\Services\Billing\RevenueCatEntitlements` from RevenueCat's webhook
+     * (`POST /api/webhooks/revenuecat`). A null product id = free account. A set product
+     * id with a future expiry — or a null expiry, which marks a non-expiring "lifetime"
+     * entitlement — is active; a past expiry means it lapsed. Chat + interviewer gate on
+     * this via hasAiAccess(); chapters are retrofitted to it in P1.3.
+     *
+     * Note that a cancelled-but-not-yet-expired subscription is still active here, which
+     * is correct: turning off auto-renew does not end the period already paid for.
      */
     public function hasActiveSubscription(): bool
     {

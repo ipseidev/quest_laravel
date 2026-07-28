@@ -1,133 +1,44 @@
+{{--
+    Layout for the four legal pages (privacy policy, terms, support, legal notice).
+
+    Rewritten to sit on the site's own chrome — same head, same header, same footer —
+    so a visitor who clicks "Confidentialité" does not land on what looks like a
+    different website. The legal *wording* is untouched: those documents were drafted
+    to be relied on, and this change is presentation only.
+
+    The page content is authored as prose, so it is wrapped in `prose-nacre` rather
+    than being littered with utility classes. `$lang` is kept as the variable name the
+    four content views already use; `$locale` is its site-layout counterpart and holds
+    the same value.
+
+    These URLs are frozen: /privacy and /support were filed in App Store Connect and
+    the app's About screen links to /privacy, /terms and /legal-notice. The language
+    is therefore a `?lang=` query, not a path prefix, and `App\Support\SiteMap` builds
+    the alternates accordingly.
+--}}
 <!DOCTYPE html>
-<html lang="{{ $lang }}">
+<html lang="{{ $locale }}">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="robots" content="index, follow">
-    <title>@yield('title') · Nacre</title>
-    <style>
-        :root {
-            --bg: #fbfaf7;
-            --surface: #ffffff;
-            --text: #1c1b19;
-            --text-secondary: #5c594f;
-            --text-tertiary: #908c80;
-            --border: #e7e3da;
-            --accent: #3a6b52;
-        }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg: #131210;
-                --surface: #1c1b18;
-                --text: #f2efe8;
-                --text-secondary: #b9b4a7;
-                --text-tertiary: #807c72;
-                --border: #2c2a25;
-                --accent: #87b89c;
-            }
-        }
-        * { box-sizing: border-box; }
-        html { -webkit-text-size-adjust: 100%; }
-        body {
-            margin: 0;
-            background: var(--bg);
-            color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            font-size: 17px;
-            line-height: 1.65;
-            -webkit-font-smoothing: antialiased;
-        }
-        main {
-            max-width: 44rem;
-            margin: 0 auto;
-            padding: 2.5rem 1.5rem 4rem;
-        }
-        header {
-            display: flex;
-            flex-wrap: wrap;
-            align-items: baseline;
-            justify-content: space-between;
-            gap: 1rem;
-            padding-bottom: 1.5rem;
-            margin-bottom: 2rem;
-            border-bottom: 1px solid var(--border);
-        }
-        .brand {
-            font-size: 1.25rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-            color: var(--text);
-            text-decoration: none;
-        }
-        nav { display: flex; gap: 1rem; align-items: baseline; font-size: 0.9rem; }
-        nav a { color: var(--text-secondary); text-decoration: none; }
-        nav a:hover { color: var(--accent); }
-        nav .lang { color: var(--text-tertiary); }
-        nav .lang a { color: var(--text-tertiary); }
-        h1 { font-size: 2rem; line-height: 1.2; letter-spacing: -0.02em; margin: 0 0 0.25rem; }
-        h2 { font-size: 1.25rem; margin: 2.25rem 0 0.5rem; letter-spacing: -0.01em; }
-        h3 { font-size: 1.05rem; margin: 1.5rem 0 0.4rem; }
-        p, li { color: var(--text); }
-        a { color: var(--accent); }
-        ul { padding-left: 1.25rem; }
-        li { margin: 0.3rem 0; }
-        .updated { color: var(--text-tertiary); font-size: 0.9rem; margin: 0 0 2rem; }
-        .table-wrap { overflow-x: auto; margin: 0.75rem 0 0; }
-        table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
-        th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
-        th { color: var(--text-secondary); font-weight: 600; }
-        thead th { white-space: nowrap; }
-        .identity { list-style: none; padding: 0; margin: 0.5rem 0 0; }
-        .identity li { margin: 0.35rem 0; }
-        .identity strong { color: var(--text-secondary); font-weight: 600; }
-        .notice {
-            background: color-mix(in srgb, var(--accent) 12%, transparent);
-            border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-            border-radius: 12px;
-            padding: 0.85rem 1.1rem;
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            margin-bottom: 2rem;
-        }
-        footer {
-            margin-top: 3rem;
-            padding-top: 1.5rem;
-            border-top: 1px solid var(--border);
-            color: var(--text-tertiary);
-            font-size: 0.85rem;
-        }
-        footer a { color: var(--text-secondary); }
-    </style>
+    @include('site.partials.head')
 </head>
-<body>
-    <main>
-        <header>
-            <a class="brand" href="{{ url('/') }}">Nacre</a>
-            <nav>
-                <a href="{{ route('legal.privacy', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Confidentialité' : 'Privacy' }}</a>
-                <a href="{{ route('legal.terms', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Conditions' : 'Terms' }}</a>
-                <a href="{{ route('legal.support', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Aide' : 'Support' }}</a>
-                <a href="{{ route('legal.notice', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Mentions légales' : 'Legal notice' }}</a>
-                <span class="lang">
-                    <a href="?lang=en">EN</a> · <a href="?lang=fr">FR</a>
-                </span>
-            </nav>
-        </header>
+<body class="bg-ink text-paper antialiased">
+    <a href="#main"
+       class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-paper focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-ink">
+        {{ __('marketing.common.skip_to_content') }}
+    </a>
 
-        @yield('content')
+    @include('site.partials.header')
 
-        <footer>
-            <p>
-                {{ $lang === 'fr'
-                    ? 'Nacre — un journal où ta vie devient une histoire. Contact : '
-                    : 'Nacre — a journal where your life becomes a story. Contact: ' }}
-                <a href="mailto:{{ $legal['contact_email'] }}">{{ $legal['contact_email'] }}</a>
-            </p>
-            <p>
-                {{ $lang === 'fr' ? 'Éditeur : ' : 'Published by ' }}{{ $legal['publisher']['name'] }}{{ $lang === 'fr' ? ', entrepreneur individuel — SIREN ' : ', sole trader — SIREN ' }}{{ $legal['publisher']['siren'] }}.
-                <a href="{{ route('legal.notice', ['lang' => $lang]) }}">{{ $lang === 'fr' ? 'Mentions légales' : 'Legal notice' }}</a>
-            </p>
-        </footer>
+    <main id="main">
+        @include('site.partials.breadcrumbs')
+
+        <div class="container-page py-12 sm:py-16">
+            <article class="prose-nacre mx-auto max-w-3xl">
+                @yield('content')
+            </article>
+        </div>
     </main>
+
+    @include('site.partials.footer')
 </body>
 </html>

@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import laravel from 'laravel-vite-plugin';
-import { bunny } from 'laravel-vite-plugin/fonts';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
@@ -8,11 +7,10 @@ export default defineConfig({
         laravel({
             input: ['resources/css/app.css', 'resources/js/app.js'],
             refresh: true,
-            fonts: [
-                bunny('Instrument Sans', {
-                    weights: [400, 500, 600],
-                }),
-            ],
+            // The Instrument Sans / Bunny Fonts entry was removed: body copy now
+            // uses the system sans stack (zero bytes, matches the app), and the
+            // one webfont we do want — Lora — is subsetted into public/fonts and
+            // declared in app.css. Nothing on the site fetches a third-party host.
         }),
         tailwindcss(),
     ],

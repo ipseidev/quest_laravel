@@ -1,13 +1,19 @@
 <?php
 
 use App\Http\Middleware\ForceJsonResponse;
+use App\Http\Middleware\RedirectLegacyHost;
 use App\Http\Middleware\ValidateJsonBody;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Http\Request;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Validation\ValidationException;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -27,6 +33,38 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->api(append: [
             ValidateJsonBody::class,
+        ]);
+
+        // Folds the legacy marketing hostname into the canonical one. Web-only:
+        // the API keeps answering on every hostname it ever did, because shipped
+        // app binaries have their base URL compiled in.
+        $middleware->web(prepend: [
+            RedirectLegacyHost::class,
+        ]);
+
+        // The `web` group serves exactly one thing here: the public marketing site
+        // and the legal pages. There is no web login, no form, no flash message and
+        // nothing per-visitor on any of them, so the session layer is pure cost:
+        //
+        //  - a database round trip per page view, for state nobody reads;
+        //  - a session cookie on a purely informational site, which is the kind of
+        //    non-essential cookie that pulls a French visitor into consent-banner
+        //    territory for no benefit.
+        //
+        // Removing it means the site sets no cookies at all and can be cached whole
+        // by a CDN. If a web form is ever added, put StartSession and
+        // PreventRequestForgery back on that route specifically — never globally.
+        //
+        // PreventRequestForgery has to go with them: it writes the XSRF-TOKEN
+        // cookie from the session, so it throws "Session store not set" the moment
+        // StartSession is gone. SubstituteBindings stays — it is stateless and
+        // needed the day a route takes a parameter.
+        $middleware->web(remove: [
+            EncryptCookies::class,
+            AddQueuedCookiesToResponse::class,
+            StartSession::class,
+            ShareErrorsFromSession::class,
+            PreventRequestForgery::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
@@ -53,7 +91,15 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 401);
         });
 
+        // These two are the only handlers a *browser* can trigger — a mistyped
+        // marketing URL, a malformed query. Returning null hands the request back
+        // to Laravel, which renders resources/views/errors/{404,400}.blade.php.
+        // Without the guard, a visitor who fat-fingers a URL is shown raw JSON.
         $exceptions->render(function (NotFoundHttpException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
             return response()->json([
                 'error' => 'not_found',
                 'message' => 'Resource not found.',
@@ -61,6 +107,10 @@ return Application::configure(basePath: dirname(__DIR__))
         });
 
         $exceptions->render(function (BadRequestHttpException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
             return response()->json([
                 'error' => 'bad_request',
                 'message' => 'Malformed request body.',

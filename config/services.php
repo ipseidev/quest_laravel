@@ -48,6 +48,24 @@ return [
         'issuers' => ['https://accounts.google.com', 'accounts.google.com'],
     ],
 
+    /*
+     * RevenueCat — the source of truth for whether an account holds Nacre Plus.
+     *
+     * The app buys through the store SDK, RevenueCat validates the receipt, and the
+     * webhook below is the only thing that tells this server about it. Without
+     * `webhook_secret` set the endpoint rejects everything, so a paying subscriber
+     * stays capped at the free media quota and gets no recurring Chapters — set it in
+     * production and paste the same value into the RevenueCat dashboard.
+     *
+     * `entitlement` must match the entitlement identifier configured there (the client
+     * reads the same one — see `PLUS_ENTITLEMENT` in the app's `data/purchases.ts`).
+     * Events for any other entitlement are ignored rather than assumed to be Plus.
+     */
+    'revenuecat' => [
+        'webhook_secret' => env('REVENUECAT_WEBHOOK_SECRET'),
+        'entitlement' => env('REVENUECAT_ENTITLEMENT', 'plus'),
+    ],
+
     'anthropic' => [
         'key' => env('ANTHROPIC_API_KEY'),
         'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),

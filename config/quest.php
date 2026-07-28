@@ -6,6 +6,11 @@ return [
         // Per-IP cap on the unauthenticated auth endpoints (register/login/
         // apple/google) — a brute-force / credential-stuffing speed bump.
         'auth' => env('QUEST_RATE_LIMIT_AUTH', 10),
+        // RevenueCat's webhook, keyed by IP. Deliberately generous: RevenueCat
+        // retries with backoff and can burst after an outage, and a throttled
+        // billing event means a paying subscriber stays on the free tier. The
+        // shared-secret check is what actually protects this endpoint.
+        'webhook' => env('QUEST_RATE_LIMIT_WEBHOOK', 300),
     ],
 
     // Cloud-media backup quota for FREE accounts, in bytes. Text/metadata backup

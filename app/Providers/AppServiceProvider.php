@@ -29,6 +29,21 @@ class AppServiceProvider extends ServiceProvider
                 });
         });
 
+        /*
+         * RevenueCat's webhook. Keyed by IP, and far looser than the auth limiter on
+         * purpose: RevenueCat retries with backoff and can burst after an outage, and a
+         * throttled billing event means a paying subscriber silently stays on the free
+         * tier. The shared-secret check in the controller is the real gate; this only
+         * bounds how hard an unauthenticated caller can hammer the endpoint.
+         *
+         * No custom 429 envelope: RevenueCat reads the status code, not the body, and
+         * will retry.
+         */
+        RateLimiter::for('webhook', function (Request $request) {
+            return Limit::perMinute((int) config('quest.rate_limits.webhook', 300))
+                ->by($request->ip());
+        });
+
         // Unauthenticated auth endpoints: keyed by IP (there is no user yet).
         // Blunts password brute-force / credential-stuffing. Same 429 envelope
         // as sync so the client's existing Retry-After handling applies.

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AiChapterController;
 use App\Http\Controllers\AiChatController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\RevenueCatWebhookController;
 use App\Http\Controllers\SyncController;
 use App\Http\Controllers\UploadController;
 use Illuminate\Support\Facades\Route;
@@ -13,6 +14,14 @@ Route::middleware('throttle:auth')->group(function () {
     Route::post('/auth/apple', [AuthController::class, 'apple']);
     Route::post('/auth/google', [AuthController::class, 'google']);
 });
+
+// RevenueCat's server-to-server webhook: the only thing that writes an account's paid
+// entitlement. Outside auth:sanctum because RevenueCat holds no user token — it
+// authenticates with the shared secret in `services.revenuecat.webhook_secret`. Its own
+// rate limit is separate from and far looser than the auth one, because a legitimate
+// burst of retries must not be throttled into failure.
+Route::post('/webhooks/revenuecat', RevenueCatWebhookController::class)
+    ->middleware('throttle:webhook');
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);

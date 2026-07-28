@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Support\SiteMap;
 use Tests\TestCase;
 
 /**
@@ -30,22 +31,57 @@ class LegalPagesTest extends TestCase
         }
     }
 
-    public function test_legal_notice_is_also_reachable_under_its_french_url(): void
+    /**
+     * `/mentions-legales` now redirects to `/legal-notice` instead of rendering a
+     * second copy of it: with the pages indexable, two URLs serving identical content
+     * compete with each other. The alias stays — it is what a French user types — and
+     * it carries `?lang=` across so the redirect doesn't silently change language.
+     */
+    public function test_the_french_legal_notice_url_redirects_to_the_canonical_one(): void
     {
         $this->get('/mentions-legales?lang=fr')
+            ->assertStatus(301)
+            ->assertRedirect('/legal-notice?lang=fr');
+
+        $this->get('/mentions-legales')
+            ->assertStatus(301)
+            ->assertRedirect('/legal-notice');
+
+        $this->followingRedirects()
+            ->get('/mentions-legales?lang=fr')
             ->assertOk()
             ->assertSee('Mentions légales', escape: false);
     }
 
-    public function test_language_falls_back_to_accept_language_then_english(): void
+    /**
+     * Three distinct cases, and the difference between the last two is deliberate.
+     *
+     * A matched language is served. A request with *no* Accept-Language is a crawler,
+     * and it gets French: these bare paths are declared canonical for French, so
+     * serving English here is how a page gets indexed in the wrong language. A request
+     * naming only languages we don't publish is a person, and English serves them
+     * better — which is also what the page's own `hreflang="x-default"` points at.
+     */
+    public function test_language_follows_accept_language_with_a_crawler_specific_fallback(): void
     {
         $this->get('/privacy', ['Accept-Language' => 'fr-FR,fr;q=0.9'])
             ->assertOk()
             ->assertSee('Politique de confidentialité', escape: false);
 
+        $this->get('/privacy', ['Accept-Language' => 'en-GB,en;q=0.9'])
+            ->assertOk()
+            ->assertSee('Privacy Policy', escape: false);
+
+        // Unsupported language named: fall back to English, as x-default advertises.
         $this->get('/privacy', ['Accept-Language' => 'de-DE,de;q=0.9'])
             ->assertOk()
             ->assertSee('Privacy Policy', escape: false);
+
+        // No header at all: French, matching the canonical this URL declares.
+        $this->withHeaders(['Accept-Language' => ''])
+            ->get('/privacy')
+            ->assertOk()
+            ->assertSee('Politique de confidentialité', escape: false);
     }
 
     /**
@@ -119,12 +155,21 @@ class LegalPagesTest extends TestCase
             ->assertSee(config('legal.hosting.region_label'));
     }
 
+    /**
+     * The legal pages now share the marketing site's footer, which links the legal
+     * notice at its canonical path — `/legal-notice`, with no `?lang=fr`, because
+     * French is the default language and the redundant parameter would make a second
+     * URL for the same page. Asserted through `SiteMap` so the expectation follows the
+     * registry instead of pinning a hand-written string.
+     */
     public function test_every_page_links_to_the_legal_notice(): void
     {
+        $expected = SiteMap::path('legal.notice', 'fr');
+
         foreach ($this->paths as $path) {
             $this->get("{$path}?lang=fr")
                 ->assertOk()
-                ->assertSee(route('legal.notice', ['lang' => 'fr']), escape: false);
+                ->assertSee('href="'.$expected.'"', escape: false);
         }
     }
 }

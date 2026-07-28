@@ -17,6 +17,15 @@ class UserResource extends JsonResource
             'email' => $this->email,
             'createdAt' => IsoDate::format($this->created_at),
             'aiChaptersOptIn' => (bool) $this->ai_chapters_opt_in,
+            /*
+             * The server's view of the paid entitlement. Additive to the V1 spec, and
+             * worth it: the app reads its entitlement from RevenueCat directly, so when
+             * the webhook has not landed the two disagree and the only symptom is a
+             * paying user getting 402 media_quota_exceeded on an upload. Exposing what
+             * the server believes turns that into something a support reply can name.
+             */
+            'plus' => $this->hasActiveSubscription(),
+            'plusExpiresAt' => IsoDate::format($this->subscription_expires_at),
         ];
     }
 }
