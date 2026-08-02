@@ -90,7 +90,7 @@ class ChapterTest extends TestCase
 
         $this->fakeAnthropic([
             'register' => 'difficult',
-            'title' => 'Mars — entre deux villes',
+            'title' => 'Mars — entre deux villes', // stripped on write
             'paragraphs' => [
                 ['text' => 'Ce mois, tu reviens souvent sur le départ.', 'entryRefs' => [$linked->id, 'hallucinated-id']],
             ],
@@ -101,7 +101,7 @@ class ChapterTest extends TestCase
         $this->assertNotNull($chapter);
         $this->assertSame('monthly', $chapter->kind);
         $this->assertSame('difficult', $chapter->register);
-        $this->assertSame('Mars — entre deux villes', $chapter->title);
+        $this->assertSame('Mars, entre deux villes', $chapter->title);
 
         // The hallucinated id is stripped; only the real entry id survives.
         $this->assertSame([$linked->id], $chapter->body['paragraphs'][0]['entryRefs']);
@@ -112,8 +112,8 @@ class ChapterTest extends TestCase
             ['type' => 'character', 'id' => $character->id, 'name' => 'Marie'],
         ], $chapter->threads);
 
-        // The anti-stats guardrail is actually sent to the model.
-        Http::assertSent(fn ($request) => str_contains((string) $request['system'], 'JAMAIS de chiffres'));
+        // The anti-stats guardrail is actually sent to the model, in the user's language.
+        Http::assertSent(fn ($request) => str_contains((string) $request['system'], 'Aucun chiffre'));
     }
 
     public function test_thin_period_skips_generation_without_calling_model(): void
@@ -550,7 +550,7 @@ class ChapterTest extends TestCase
 
         $this->assertNotNull($chapter);
         $this->assertSame('annual', $chapter->kind);
-        $this->assertSame('2026 — une année', $chapter->title);
+        $this->assertSame('2026, une année', $chapter->title);
         // period_start is Jan 1 of the year — the client formats it as the year.
         $this->assertSame('2026-01-01', Carbon::parse($chapter->period_start)->format('Y-m-d'));
         Http::assertSent(fn ($request) => str_contains((string) $request['system'], 'Ton année en récit'));
@@ -735,6 +735,274 @@ class ChapterTest extends TestCase
             // The total budget shrinks per-entry excerpts; without it this would be ~240k.
             return mb_strlen($content) < 220000;
         });
+    }
+
+    // --- Em dashes: banned in the prompt, stripped deterministically on write ---
+
+    public function test_dashes_are_stripped_from_the_stored_chapter(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+
+        $this->fakeAnthropic([
+            'register' => 'neutral',
+            'title' => 'Mars — le carton de livres',
+            'paragraphs' => [
+                // Aside, apposition, en dash, and a dash landing on existing punctuation.
+                ['text' => 'Le carton est resté fermé — tu passais devant — jusqu\'au 12. Une visite – la seule – t\'a plu. Tu l\'as ouvert. — Puis tu as tout ressorti.', 'entryRefs' => []],
+                ['text' => 'Il tient debout tout seul, à force —', 'entryRefs' => []],
+            ],
+        ]);
+
+        $chapter = app(ChapterGenerator::class)->monthly($user, $march);
+
+        $this->assertSame('Mars, le carton de livres', $chapter->title);
+        $this->assertSame(
+            'Le carton est resté fermé, tu passais devant, jusqu\'au 12. Une visite, la seule, t\'a plu. Tu l\'as ouvert. Puis tu as tout ressorti.',
+            $chapter->body['paragraphs'][0]['text'],
+        );
+        // A trailing dash must not leave a dangling comma behind.
+        $this->assertSame('Il tient debout tout seul, à force', $chapter->body['paragraphs'][1]['text']);
+
+        // Hyphens inside compound words are untouched.
+        $this->assertStringNotContainsString('—', json_encode($chapter->body, JSON_UNESCAPED_UNICODE));
+    }
+
+    public function test_the_prompt_and_the_material_contain_no_dash_to_imitate(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+
+        $quest = Quest::factory()->for($user)->create(['title' => 'Quitter Lyon', 'description' => 'Partir avant l\'été']);
+        $character = Character::factory()->for($user)->create(['name' => 'Marie', 'relationship' => 'ma sœur', 'note' => 'appelle le dimanche']);
+        $entry = Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)])->first();
+        $entry->quests()->attach($quest->id, ['created_at' => now()]);
+        $entry->characters()->attach($character->id, ['created_at' => now()]);
+
+        $this->fakeAnthropic(['register' => 'neutral', 'title' => 'Mars', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
+
+        app(ChapterGenerator::class)->monthly($user, $march);
+
+        Http::assertSent(function ($request) {
+            $system = (string) $request['system'];
+            $material = (string) $request['messages'][0]['content'];
+
+            // The rule names the character, so the prompt carries it exactly twice
+            // (em dash + en dash in "Jamais de tiret cadratin (—), ni ... (–)").
+            return substr_count($system, '—') === 1
+                && str_contains($system, 'Jamais de tiret cadratin')
+                && ! str_contains($material, '—');
+        });
+    }
+
+    // --- Forced regeneration (the prompt-retuning loop) ---
+
+    public function test_monthly_force_regenerates_replacing_the_existing_chapter(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+
+        $this->fakeAnthropicResponses(
+            $this->chapterBody(['register' => 'neutral', 'title' => 'Première', 'paragraphs' => [['text' => 'a', 'entryRefs' => []]]]),
+            $this->chapterBody(['register' => 'difficult', 'title' => 'Seconde', 'paragraphs' => [['text' => 'b', 'entryRefs' => []]]]),
+        );
+
+        $first = app(ChapterGenerator::class)->monthly($user, $march);
+        $this->assertSame('Première', $first->title);
+
+        // Without --force this is a no-op; with it, the month is rewritten in place.
+        $this->assertNull(app(ChapterGenerator::class)->monthly($user, $march));
+
+        $second = app(ChapterGenerator::class)->monthly($user, $march, force: true);
+
+        $this->assertSame('Seconde', $second->title);
+        $this->assertSame('difficult', $second->register);
+        $this->assertSame(1, Chapter::withoutGlobalScope(BelongsToCurrentUserScope::class)
+            ->where('kind', 'monthly')->count());
+    }
+
+    public function test_monthly_force_preserves_the_existing_chapter_when_generation_is_refused(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+
+        // A sequence, not two fake() calls: Http::fake() appends stubs and the first
+        // match wins, so re-faking the same URL would leave the success stub in place.
+        $this->fakeAnthropicResponses(
+            $this->chapterBody(['register' => 'neutral', 'title' => 'Première', 'paragraphs' => [['text' => 'a', 'entryRefs' => []]]]),
+            ['stop_reason' => 'refusal', 'content' => []],
+        );
+
+        app(ChapterGenerator::class)->monthly($user, $march);
+
+        // A refusal must never leave the user with nothing where they had a chapter.
+        $this->assertNull(app(ChapterGenerator::class)->monthly($user, $march, force: true));
+
+        $surviving = Chapter::withoutGlobalScope(BelongsToCurrentUserScope::class)->where('kind', 'monthly')->get();
+        $this->assertCount(1, $surviving);
+        $this->assertSame('Première', $surviving->first()->title);
+    }
+
+    public function test_monthly_command_force_dispatches_for_an_already_covered_user(): void
+    {
+        config(['services.anthropic.chapters_enabled' => true]);
+        Queue::fake();
+
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+        Chapter::factory()->for($user)->create([
+            'kind' => 'monthly',
+            'period_start' => $march,
+            'period_end' => $march->copy()->endOfMonth(),
+            'status' => 'ready',
+        ]);
+
+        $this->artisan('quest:generate-monthly-chapters', ['--month' => '2026-03'])->assertSuccessful();
+        Queue::assertNothingPushed();
+
+        $this->artisan('quest:generate-monthly-chapters', ['--month' => '2026-03', '--force' => true])->assertSuccessful();
+        Queue::assertPushed(GenerateMonthlyChapter::class, fn ($job) => $job->user->is($user) && $job->force === true);
+    }
+
+    // --- Material shape & locale ---
+
+    /**
+     * The material the model actually receives. Everything asserted here was missing
+     * before and is load-bearing for prose quality: without the entry title the densest
+     * line the person wrote never reaches the model, and without the roster it only ever
+     * sees bare names repeated in each entry header.
+     */
+    public function test_material_carries_entry_titles_and_the_cast_roster(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+
+        $quest = Quest::factory()->for($user)->create([
+            'title' => 'Quitter Lyon',
+            'description' => 'Partir avant l\'été',
+            'status' => 'active',
+        ]);
+        $character = Character::factory()->for($user)->create([
+            'name' => 'Marie',
+            'relationship' => 'ma sœur',
+            'note' => 'appelle le dimanche',
+        ]);
+
+        $entries = Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+        $linked = $entries->first();
+        $linked->forceFill(['title' => 'Le carton de livres'])->save();
+        $linked->quests()->attach($quest->id, ['created_at' => now()]);
+        $linked->characters()->attach($character->id, ['created_at' => now()]);
+
+        $this->fakeAnthropic(['register' => 'neutral', 'title' => 'Mars', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
+
+        app(ChapterGenerator::class)->monthly($user, $march);
+
+        Http::assertSent(function ($request) {
+            $material = (string) $request['messages'][0]['content'];
+
+            return str_contains($material, 'Le carton de livres')
+                && str_contains($material, 'Quitter Lyon (en cours) · Partir avant l\'été')
+                && str_contains($material, 'Marie (ma sœur) · appelle le dimanche')
+                // Weekday, not a bare ISO date: a run of weekend entries reads differently.
+                && str_contains($material, 'mercredi 4 mars 2026');
+        });
+    }
+
+    public function test_long_entries_keep_their_paragraphs_and_are_cut_from_the_middle(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $march = Carbon::parse('2026-03-01');
+
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+        Entry::query()->withoutGlobalScope(BelongsToCurrentUserScope::class)->first()->forceFill([
+            'html' => '<p>OUVERTURE</p><p>'.str_repeat('remplissage ', 400).'</p><p>FERMETURE</p>',
+        ])->save();
+
+        $this->fakeAnthropic(['register' => 'neutral', 'title' => 'Mars', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
+
+        app(ChapterGenerator::class)->monthly($user, $march);
+
+        Http::assertSent(function ($request) {
+            $material = (string) $request['messages'][0]['content'];
+
+            return str_contains($material, "OUVERTURE\n")   // block tags became newlines
+                && str_contains($material, 'FERMETURE')     // the END survived truncation
+                && str_contains($material, "\n[…]\n");      // cut from the middle
+        });
+    }
+
+    public function test_an_english_user_gets_the_english_prompt_and_labels(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create(['locale' => 'en']);
+        $march = Carbon::parse('2026-03-01');
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+
+        $this->fakeAnthropic(['register' => 'neutral', 'title' => 'March', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
+
+        app(ChapterGenerator::class)->monthly($user, $march);
+
+        Http::assertSent(function ($request) {
+            return str_contains((string) $request['system'], 'Write in English')
+                && str_contains((string) $request['system'], 'Choose, don\'t cover')
+                && str_contains((string) $request['messages'][0]['content'], 'Period: March 2026');
+        });
+    }
+
+    public function test_an_account_without_a_locale_still_gets_french(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create(); // locale null
+        $march = Carbon::parse('2026-03-01');
+        Entry::factory()->count(6)->for($user)->create(['entry_date' => $march->copy()->addDays(3)]);
+
+        $this->assertNull($user->locale);
+        $this->assertSame('fr', $user->chapterLocale());
+
+        $this->fakeAnthropic(['register' => 'neutral', 'title' => 'Mars', 'paragraphs' => [['text' => 'x', 'entryRefs' => []]]]);
+
+        app(ChapterGenerator::class)->monthly($user, $march);
+
+        Http::assertSent(fn ($request) => str_contains((string) $request['messages'][0]['content'], 'Période : mars 2026'));
+    }
+
+    public function test_patch_me_writes_locale_without_touching_consent(): void
+    {
+        $user = User::factory()->optedIntoAi()->create();
+        $token = $user->createToken('mobile')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->patchJson('/api/me', ['locale' => 'en'])
+            ->assertOk()
+            ->assertJsonPath('user.locale', 'en')
+            ->assertJsonPath('user.aiChaptersOptIn', true);
+
+        $this->assertSame('en', $user->fresh()->locale);
+        $this->assertTrue($user->fresh()->ai_chapters_opt_in);
+    }
+
+    public function test_patch_me_rejects_an_unsupported_locale(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('mobile')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->patchJson('/api/me', ['locale' => 'de'])
+            ->assertStatus(422);
+    }
+
+    public function test_me_exposes_a_null_locale_until_the_client_pushes_one(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('mobile')->plainTextToken;
+
+        $this->withHeader('Authorization', 'Bearer '.$token)
+            ->getJson('/api/me')
+            ->assertOk()
+            ->assertJsonPath('user.locale', null);
     }
 
     // --- Dispatch-level idempotency & consent, isolated via Queue::fake ---

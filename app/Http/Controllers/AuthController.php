@@ -182,9 +182,20 @@ class AuthController extends Controller
     public function updateMe(UpdateMeRequest $request): JsonResponse
     {
         $user = $request->user();
-        $user->forceFill([
-            'ai_chapters_opt_in' => $request->validated('aiChaptersOptIn'),
-        ])->save();
+        $validated = $request->validated();
+
+        // Patch semantics: write only what was sent. The client pushes the language on
+        // its own schedule (sign-in, language change), independently of the AI consent
+        // toggle, and neither call may clobber the other's field.
+        $changes = [];
+        if (array_key_exists('aiChaptersOptIn', $validated)) {
+            $changes['ai_chapters_opt_in'] = $validated['aiChaptersOptIn'];
+        }
+        if (array_key_exists('locale', $validated)) {
+            $changes['locale'] = $validated['locale'];
+        }
+
+        $user->forceFill($changes)->save();
 
         return response()->json([
             'user' => new UserResource($user),

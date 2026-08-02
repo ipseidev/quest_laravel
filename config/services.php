@@ -69,13 +69,24 @@ return [
     'anthropic' => [
         'key' => env('ANTHROPIC_API_KEY'),
         'base_url' => env('ANTHROPIC_BASE_URL', 'https://api.anthropic.com'),
-        // Chapter generation hard-depends on structured outputs (output_config.format
-        // json_schema). The default MUST be a model that supports it — Sonnet 4.6 does
-        // NOT (it 400s on the format the code requires), so the default is Sonnet 5.
-        'chapter_model' => env('ANTHROPIC_CHAPTER_MODEL', 'claude-sonnet-5'),
-        // Shared budget for adaptive thinking + the JSON output; too small and a long
-        // think truncates the JSON (stop_reason=max_tokens) and the chapter is lost.
-        'chapter_max_tokens' => (int) env('ANTHROPIC_CHAPTER_MAX_TOKENS', 16000),
+        /*
+         * Chapter generation hard-depends on structured outputs (output_config.format
+         * json_schema). The default MUST be a model that supports it — Sonnet 4.6 does
+         * NOT (it 400s on the format the code requires).
+         *
+         * Opus 5 rather than Sonnet 5: a Chapter is generated once per user per month
+         * and *is* the paid product, so at roughly $0.20 against $0.10 per chapter the
+         * prose quality is not the place to economise. Opus 5 runs adaptive thinking by
+         * default and takes the same request shape, so this is a model-string swap.
+         */
+        'chapter_model' => env('ANTHROPIC_CHAPTER_MODEL', 'claude-opus-5'),
+        /*
+         * Shared budget for adaptive thinking + the JSON output; too small and a long
+         * think truncates the JSON (stop_reason=max_tokens) and the chapter is lost.
+         * Raised with the move to Opus 5, which thinks more by default. An unspent cap
+         * costs nothing — only tokens actually generated are billed.
+         */
+        'chapter_max_tokens' => (int) env('ANTHROPIC_CHAPTER_MAX_TOKENS', 32000),
         'chapters_enabled' => env('QUEST_CHAPTERS_ENABLED', false),
         // "Talk to Myself" — interactive chat over the user's own entries. Free-form
         // text (no json_schema), multi-turn, synchronous. Default Sonnet 5 (chat needs

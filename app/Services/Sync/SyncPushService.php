@@ -199,7 +199,12 @@ class SyncPushService
             'relationship' => $data['relationship'] ?? null,
             'note' => $data['note'] ?? '',
             'photo_uri' => '',
-            'remote_photo_uri' => $data['remotePhotoUri'] ?? null,
+            // Same rule as entry_attachments/entry_audio: a cloud URI already on
+            // record wins, and the client's value only ever seeds a new row. Taking
+            // it from the payload unconditionally let every character push clear
+            // the column — which both broke the photo and orphaned the object in
+            // the bucket, since retention finds files to delete through it.
+            'remote_photo_uri' => $existing?->remote_photo_uri ?? ($data['remotePhotoUri'] ?? null),
             'color' => $data['color'] ?? null,
             'is_deleted' => $data['isDeleted'] ?? false,
             'created_at' => IsoDate::parse($data['createdAt'] ?? null) ?? $incomingUpdatedAt,

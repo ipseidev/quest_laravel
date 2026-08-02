@@ -18,6 +18,13 @@ class UserResource extends JsonResource
             'createdAt' => IsoDate::format($this->created_at),
             'aiChaptersOptIn' => (bool) $this->ai_chapters_opt_in,
             /*
+             * The language the AI layer writes in, as the server has it. Null means the
+             * client has never pushed one — exposed rather than defaulted so the app can
+             * tell "never set" from "deliberately fr" and push once instead of on every
+             * launch. Generation itself falls back via User::chapterLocale().
+             */
+            'locale' => $this->locale,
+            /*
              * The server's view of the paid entitlement. Additive to the V1 spec, and
              * worth it: the app reads its entitlement from RevenueCat directly, so when
              * the webhook has not landed the two disagree and the only symptom is a

@@ -23,6 +23,7 @@ class GenerateMonthlyChapter implements ShouldQueue
     public function __construct(
         public User $user,
         public CarbonInterface $monthStart,
+        public bool $force = false,
     ) {}
 
     /**
@@ -37,7 +38,7 @@ class GenerateMonthlyChapter implements ShouldQueue
     {
         // A null return means "nothing to generate" (skip/refusal/unparsable) — done.
         // A thrown ChapterGenerationException means transient — the queue retries.
-        $generator->monthly($this->user, $this->monthStart);
+        $generator->monthly($this->user, $this->monthStart, $this->force);
     }
 
     public function failed(Throwable $e): void

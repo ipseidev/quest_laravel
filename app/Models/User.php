@@ -21,6 +21,18 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, HasUuids, Notifiable;
 
+    /**
+     * Languages the AI layer can write in — one `lang/{locale}/chapters.php` per entry.
+     * Adding one here without adding that file makes the generator fall back silently,
+     * so add both together.
+     *
+     * @var list<string>
+     */
+    public const SUPPORTED_LOCALES = ['fr', 'en'];
+
+    /** Used when the account has no locale of its own. Quest launched FR-first. */
+    public const DEFAULT_LOCALE = 'fr';
+
     public function newUniqueId(): string
     {
         return (string) Str::uuid();
@@ -69,6 +81,22 @@ class User extends Authenticatable
     public function hasAiAccess(): bool
     {
         return $this->hasActiveSubscription() && $this->ai_chapters_opt_in;
+    }
+
+    /**
+     * The language a Chapter is written in for this account.
+     *
+     * `users.locale` is written only by the client (`PATCH /api/me`), so it is null for
+     * accounts that predate that call and for anyone who never opened a build carrying
+     * it. Falling back to DEFAULT_LOCALE keeps those users on the launch language
+     * instead of the server's `app.locale`, which is a deployment detail and has
+     * nothing to say about what language someone writes their journal in.
+     */
+    public function chapterLocale(): string
+    {
+        return in_array($this->locale, self::SUPPORTED_LOCALES, true)
+            ? $this->locale
+            : self::DEFAULT_LOCALE;
     }
 
     /**

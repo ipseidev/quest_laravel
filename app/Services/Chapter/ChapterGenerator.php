@@ -53,10 +53,23 @@ class ChapterGenerator
     private const TOTAL_MATERIAL_CHARS = 200000;
 
     /**
+     * Roughly what one entry costs beyond its excerpt: the bracketed metadata line, the
+     * entry's own title, and the separator. Subtracted from the per-entry budget so the
+     * total ceiling stays a ceiling — before the title line was added, this overhead was
+     * small enough to ignore, and it no longer is.
+     */
+    private const ENTRY_OVERHEAD_CHARS = 160;
+
+    /**
      * Generate the monthly chapter for the month containing $monthStart.
      * Returns null when the period is too thin, already generated, or generation failed.
+     *
+     * When $force it REPLACES an existing chapter for that month — but only once a
+     * fresh one has been produced, so a refusal or a hard failure never destroys what
+     * is already there. Same contract as allTime($force). This is the loop used to
+     * retune prompts against a real month; nothing schedules it.
      */
-    public function monthly(User $user, CarbonInterface $monthStart): ?Chapter
+    public function monthly(User $user, CarbonInterface $monthStart, bool $force = false): ?Chapter
     {
         // Consent gate (defense-in-depth — the commands also filter): never send
         // a user's entries to the model unless they opted into the AI layer.
@@ -67,7 +80,7 @@ class ChapterGenerator
         $start = Carbon::parse($monthStart)->startOfMonth();
         $end = $start->copy()->endOfMonth();
 
-        if ($this->monthlyExists($user, $start)) {
+        if (! $force && $this->monthlyExists($user, $start)) {
             return null;
         }
 
@@ -77,18 +90,35 @@ class ChapterGenerator
             return null;
         }
 
+        $locale = $user->chapterLocale();
+
         $parsed = $this->complete(
-            self::SYSTEM_PROMPT,
-            $this->buildMaterial($start, $entries, $this->previousMonthlyChapter($user, $start)),
+            $this->systemPrompt('monthly', $locale),
+            $this->buildMaterial($start, $entries, $this->previousMonthlyChapter($user, $start), $locale),
             self::schema(),
-            ['user_id' => $user->id, 'kind' => 'monthly', 'period' => $start->format('Y-m')],
+            ['user_id' => $user->id, 'kind' => 'monthly', 'period' => $start->format('Y-m'), 'locale' => $locale],
         );
 
         if ($parsed === null) {
             return null;
         }
 
-        return $this->persist($user, 'monthly', $start, $end, $entries, $parsed);
+        // Replace atomically when forcing: the fresh chapter is in hand, so dropping the
+        // old row is now safe. Without the delete, `chapters_period_unique` would reject
+        // the insert and persist() would log it as a lost race.
+        return DB::transaction(function () use ($user, $start, $end, $entries, $parsed, $locale, $force) {
+            if ($force) {
+                Chapter::query()
+                    ->withoutGlobalScope(BelongsToCurrentUserScope::class)
+                    ->where('user_id', $user->id)
+                    ->where('kind', 'monthly')
+                    ->where('period_start', '>=', $start)
+                    ->where('period_start', '<', $start->copy()->addMonth())
+                    ->delete();
+            }
+
+            return $this->persist($user, 'monthly', $start, $end, $entries, $parsed, locale: $locale);
+        });
     }
 
     /**
@@ -126,18 +156,20 @@ class ChapterGenerator
             ? Carbon::parse($quest->completed_at)
             : Carbon::parse($last->entry_date ?? $last->created_at);
 
+        $locale = $user->chapterLocale();
+
         $parsed = $this->complete(
-            self::SYSTEM_PROMPT_QUEST,
-            $this->buildQuestMaterial($quest, $entries),
+            $this->systemPrompt('quest', $locale),
+            $this->buildQuestMaterial($quest, $entries, $locale),
             self::schema(),
-            ['user_id' => $user->id, 'kind' => 'quest', 'quest_id' => $quest->id],
+            ['user_id' => $user->id, 'kind' => 'quest', 'quest_id' => $quest->id, 'locale' => $locale],
         );
 
         if ($parsed === null) {
             return null;
         }
 
-        return $this->persist($user, 'quest', $start, $end, $entries, $parsed, $quest->id);
+        return $this->persist($user, 'quest', $start, $end, $entries, $parsed, $quest->id, $locale);
     }
 
     /**
@@ -166,18 +198,20 @@ class ChapterGenerator
             return null;
         }
 
+        $locale = $user->chapterLocale();
+
         $parsed = $this->complete(
-            self::SYSTEM_PROMPT_ANNUAL,
-            $this->buildAnnualMaterial($year, $entries),
+            $this->systemPrompt('annual', $locale),
+            $this->buildAnnualMaterial($year, $entries, $locale),
             self::schema(),
-            ['user_id' => $user->id, 'kind' => 'annual', 'period' => (string) $year],
+            ['user_id' => $user->id, 'kind' => 'annual', 'period' => (string) $year, 'locale' => $locale],
         );
 
         if ($parsed === null) {
             return null;
         }
 
-        return $this->persist($user, 'annual', $start, $end, $entries, $parsed);
+        return $this->persist($user, 'annual', $start, $end, $entries, $parsed, locale: $locale);
     }
 
     /**
@@ -206,13 +240,15 @@ class ChapterGenerator
             return null;
         }
 
+        $locale = $user->chapterLocale();
+
         // Generate FIRST — before touching the DB — so a failed or refused
         // regeneration leaves the existing all-time chapter intact.
         $parsed = $this->complete(
-            self::SYSTEM_PROMPT_ALLTIME,
-            $this->buildAllTimeMaterial($entries),
+            $this->systemPrompt('alltime', $locale),
+            $this->buildAllTimeMaterial($entries, $locale),
             self::schema(),
-            ['user_id' => $user->id, 'kind' => 'alltime', 'period' => 'all'],
+            ['user_id' => $user->id, 'kind' => 'alltime', 'period' => 'all', 'locale' => $locale],
         );
 
         if ($parsed === null) {
@@ -226,14 +262,14 @@ class ChapterGenerator
 
         // Replace atomically: drop any existing all-time chapter, then persist the
         // fresh one (there is only ever one all-time chapter per user).
-        return DB::transaction(function () use ($user, $start, $end, $entries, $parsed) {
+        return DB::transaction(function () use ($user, $start, $end, $entries, $parsed, $locale) {
             Chapter::query()
                 ->withoutGlobalScope(BelongsToCurrentUserScope::class)
                 ->where('user_id', $user->id)
                 ->where('kind', 'alltime')
                 ->delete();
 
-            return $this->persist($user, 'alltime', $start, $end, $entries, $parsed);
+            return $this->persist($user, 'alltime', $start, $end, $entries, $parsed, locale: $locale);
         });
     }
 
@@ -351,18 +387,19 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildMaterial(Carbon $start, Collection $entries, ?Chapter $previous): string
+    private function buildMaterial(Carbon $start, Collection $entries, ?Chapter $previous, string $locale): string
     {
-        $lines = ['Période : '.$start->copy()->locale('fr')->translatedFormat('F Y'), '', 'Entrées (ordre chronologique) :', ''];
+        $lines = [
+            $this->label('period', $locale, ['period' => $this->monthLabel($start, $locale)]),
+            '',
+        ];
 
-        $cap = $this->perEntryBudget($entries->count());
-        foreach ($entries as $entry) {
-            array_push($lines, ...$this->formatEntryLines($entry, $cap));
-        }
+        array_push($lines, ...$this->rosterLines($entries, $locale));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading'));
 
         if ($previous !== null) {
             $lines[] = '';
-            $lines[] = 'Chapitre du mois précédent (pour la continuité, ne le répète pas) :';
+            $lines[] = $this->label('previous_heading', $locale);
             $lines[] = $previous->title;
             foreach (($previous->body['paragraphs'] ?? []) as $paragraph) {
                 $lines[] = (string) ($paragraph['text'] ?? '');
@@ -375,20 +412,18 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildQuestMaterial(Quest $quest, Collection $entries): string
+    private function buildQuestMaterial(Quest $quest, Collection $entries, string $locale): string
     {
-        $lines = ['Quête : '.$quest->title];
-        if (! empty($quest->description)) {
-            $lines[] = 'Intention : '.$quest->description;
+        $lines = [$this->label('quest', $locale, ['title' => (string) $quest->title])];
+
+        if (filled($quest->description)) {
+            $lines[] = $this->label('quest_intent', $locale, ['intent' => $this->collapse((string) $quest->description)]);
         }
-        $lines[] = '';
-        $lines[] = 'Entrées qui ont jalonné cette quête (ordre chronologique) :';
+
         $lines[] = '';
 
-        $cap = $this->perEntryBudget($entries->count());
-        foreach ($entries as $entry) {
-            array_push($lines, ...$this->formatEntryLines($entry, $cap));
-        }
+        array_push($lines, ...$this->rosterLines($entries, $locale, includeQuests: false));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'quest_entries_heading'));
 
         return implode("\n", $lines);
     }
@@ -396,17 +431,15 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildAnnualMaterial(int $year, Collection $entries): string
+    private function buildAnnualMaterial(int $year, Collection $entries, string $locale): string
     {
-        // Same shape as the monthly material — the year's entries in order. The
-        // per-entry cap bounds each line; a future total-material budget will
-        // bound very active years.
-        $lines = ['Année : '.$year, '', 'Entrées (ordre chronologique) :', ''];
+        // Same shape as the monthly material — the year's entries in order, preceded by
+        // the roster. The per-entry cap bounds each line; a future total-material budget
+        // will bound very active years.
+        $lines = [$this->label('year', $locale, ['year' => (string) $year]), ''];
 
-        $cap = $this->perEntryBudget($entries->count());
-        foreach ($entries as $entry) {
-            array_push($lines, ...$this->formatEntryLines($entry, $cap));
-        }
+        array_push($lines, ...$this->rosterLines($entries, $locale));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading'));
 
         return implode("\n", $lines);
     }
@@ -414,16 +447,90 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildAllTimeMaterial(Collection $entries): string
+    private function buildAllTimeMaterial(Collection $entries, string $locale): string
     {
-        $lines = ['Journal complet — toutes les entrées (ordre chronologique) :', ''];
+        $lines = [$this->label('all_time', $locale), ''];
+
+        array_push($lines, ...$this->rosterLines($entries, $locale));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading'));
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * The heading plus every entry, budgeted. Shared by the four material builders so
+     * the entry block is byte-identical across kinds.
+     *
+     * @param  Collection<int, Entry>  $entries
+     * @return array<int, string>
+     */
+    private function entryLines(Collection $entries, string $locale, string $headingKey): array
+    {
+        $lines = [$this->label($headingKey, $locale), ''];
 
         $cap = $this->perEntryBudget($entries->count());
         foreach ($entries as $entry) {
-            array_push($lines, ...$this->formatEntryLines($entry, $cap));
+            array_push($lines, ...$this->formatEntryLines($entry, $cap, $locale));
         }
 
-        return implode("\n", $lines);
+        return $lines;
+    }
+
+    /**
+     * The cast list, stated once at the top of the material: every quest and character
+     * the period touches, with the context the entries themselves never restate — a
+     * quest's intent and status, a character's relationship and note.
+     *
+     * Without this the model only ever sees bare names repeated in each entry header,
+     * which is why it used to name people instead of weaving them. The ids stay out:
+     * `threads` is built server-side from the same relations, and the model has no use
+     * for a quest id it must never print.
+     *
+     * @param  Collection<int, Entry>  $entries
+     * @return array<int, string>
+     */
+    private function rosterLines(Collection $entries, string $locale, bool $includeQuests = true): array
+    {
+        $quests = [];
+        $characters = [];
+
+        foreach ($entries as $entry) {
+            foreach ($entry->quests as $quest) {
+                $status = $quest->status === 'completed' ? 'status_completed' : 'status_active';
+                $line = '- '.$quest->title.' ('.$this->label($status, $locale).')';
+                if (filled($quest->description)) {
+                    $line .= ' · '.$this->collapse((string) $quest->description);
+                }
+                $quests[$quest->id] = $line;
+            }
+
+            foreach ($entry->characters as $character) {
+                $line = '- '.$character->name;
+                if (filled($character->relationship)) {
+                    $line .= ' ('.$this->collapse((string) $character->relationship).')';
+                }
+                if (filled($character->note)) {
+                    $line .= ' · '.$this->collapse((string) $character->note);
+                }
+                $characters[$character->id] = $line;
+            }
+        }
+
+        $lines = [];
+
+        if ($includeQuests && $quests !== []) {
+            $lines[] = $this->label('quests_heading', $locale);
+            array_push($lines, ...array_values($quests));
+            $lines[] = '';
+        }
+
+        if ($characters !== []) {
+            $lines[] = $this->label('characters_heading', $locale);
+            array_push($lines, ...array_values($characters));
+            $lines[] = '';
+        }
+
+        return $lines;
     }
 
     /**
@@ -434,10 +541,9 @@ class ChapterGenerator
      */
     private function perEntryBudget(int $count): int
     {
-        return max(
-            self::MIN_ENTRY_CHARS,
-            min(self::MAX_ENTRY_CHARS, intdiv(self::TOTAL_MATERIAL_CHARS, max($count, 1))),
-        );
+        $share = intdiv(self::TOTAL_MATERIAL_CHARS, max($count, 1)) - self::ENTRY_OVERHEAD_CHARS;
+
+        return max(self::MIN_ENTRY_CHARS, min(self::MAX_ENTRY_CHARS, $share));
     }
 
     /**
@@ -447,34 +553,131 @@ class ChapterGenerator
      *
      * @return array<int, string>
      */
-    private function formatEntryLines(Entry $entry, int $cap): array
+    private function formatEntryLines(Entry $entry, int $cap, string $locale): array
     {
-        $date = Carbon::parse($entry->entry_date ?? $entry->created_at)->format('Y-m-d');
-        $quests = $entry->quests->pluck('title')->filter()->implode(', ');
-        $characters = $entry->characters->pluck('name')->filter()->implode(', ');
+        // Weekday included on purpose: "samedi 12 juillet" tells the model something
+        // "2026-07-12" does not, and a run of weekday entries reads differently from a
+        // run of weekend ones.
+        $date = Carbon::parse($entry->entry_date ?? $entry->created_at)
+            ->locale($locale)
+            ->translatedFormat($this->label('date_format', $locale));
 
         $meta = ['id: '.$entry->id, $date];
+
         if ($entry->mood) {
-            $meta[] = 'humeur: '.$entry->mood;
+            $meta[] = $this->label('mood', $locale).': '.$entry->mood;
         }
+
+        $quests = $entry->quests->pluck('title')->filter()->implode(', ');
         if ($quests !== '') {
-            $meta[] = 'quêtes: '.$quests;
+            $meta[] = $this->label('quests', $locale).': '.$quests;
         }
+
+        $characters = $entry->characters->pluck('name')->filter()->implode(', ');
         if ($characters !== '') {
-            $meta[] = 'personnages: '.$characters;
+            $meta[] = $this->label('characters', $locale).': '.$characters;
         }
 
-        $text = trim((string) preg_replace('/\s+/', ' ', strip_tags((string) $entry->html)));
-        $excerpt = mb_substr($text, 0, $cap);
-        if (mb_strlen($text) > $cap) {
-            $excerpt .= ' […]';
+        $lines = ['['.implode(' · ', $meta).']'];
+
+        // The entry's own title was never sent before. It is frequently the densest
+        // line the person wrote — the one place they already summarised their day.
+        if (filled($entry->title)) {
+            $lines[] = trim((string) $entry->title);
         }
 
-        return [
-            '['.implode(' · ', $meta).']',
-            $excerpt,
-            '---',
-        ];
+        $lines[] = $this->excerpt((string) $entry->html, $cap);
+        $lines[] = '---';
+
+        return $lines;
+    }
+
+    /**
+     * An entry's body as the model should see it.
+     *
+     * Two things this deliberately does NOT do, both of which it used to:
+     *
+     * - It does not flatten the text to one line. The author's own paragraph breaks
+     *   carry rhythm — a five-line burst reads differently from one dense block — and
+     *   collapsing every `\s+` to a space threw that away before the model saw it.
+     * - It does not truncate from the front only. An entry usually *resolves* at the
+     *   end, so a head-only cap discarded precisely the part worth telling. Long
+     *   entries are cut from the middle, keeping both the setup and the landing.
+     */
+    private function excerpt(string $html, int $cap): string
+    {
+        // Turn block boundaries into newlines BEFORE stripping, or a wall of <p> collapses.
+        $text = preg_replace('#<(?:br\s*/?|/p|/div|/li|/h[1-6]|/blockquote)\s*>#i', "\n", $html);
+        $text = html_entity_decode(strip_tags((string) $text), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        $text = str_replace("\r\n", "\n", $text);
+        $text = preg_replace('/[^\S\n]+/u', ' ', $text);      // horizontal whitespace only
+        $text = preg_replace('/ *\n */', "\n", (string) $text);
+        $text = trim((string) preg_replace('/\n{3,}/', "\n\n", (string) $text));
+
+        if (mb_strlen($text) <= $cap) {
+            return $text;
+        }
+
+        $head = (int) round($cap * 0.6);
+
+        return mb_substr($text, 0, $head)."\n[…]\n".mb_substr($text, -($cap - $head));
+    }
+
+    /**
+     * Remove the dashes the prompt forbids, on the way into the DB.
+     *
+     * The em dash is the punctuation that most reliably reads as machine-written, and a
+     * prompt rule is only ever probabilistic. So it is fought on three fronts: the rule
+     * itself, the prompts and the material being dash-free (a model imitates the register
+     * of its own instructions, and telling it to avoid a character used twenty times in
+     * the brief does not work), and this pass, which is not probabilistic at all.
+     *
+     * A dash becomes a comma — grammatical in the aside and apposition slots a model
+     * actually reaches for it in — and the doubled or dangling punctuation that leaves
+     * behind is then collapsed. Hyphen-minus is untouched, so "chez-toi" survives; the
+     * range covers figure dash through horizontal bar.
+     */
+    private function stripDashes(string $text): string
+    {
+        $text = preg_replace('/\h*[\x{2012}-\x{2015}]\h*/u', ', ', $text);
+        $text = preg_replace('/([,;:.!?…])\h*,\h*/u', '$1 ', (string) $text);
+        $text = preg_replace('/,\h*(?=[.!?…,;:])/u', '', (string) $text);
+        $text = preg_replace('/(^\h*,\h*|\h*,\h*$)/u', '', (string) $text);
+
+        return trim((string) preg_replace('/\h{2,}/u', ' ', (string) $text));
+    }
+
+    /** Single-line, length-bounded rendering for roster context (intents, notes). */
+    private function collapse(string $value, int $cap = 240): string
+    {
+        $text = trim((string) preg_replace('/\s+/u', ' ', strip_tags($value)));
+
+        return mb_strlen($text) > $cap ? mb_substr($text, 0, $cap).' […]' : $text;
+    }
+
+    /**
+     * The system prompt for a kind, in the user's language. Prompts live in
+     * `lang/{locale}/chapters.php` rather than in this class: they are product copy
+     * that gets tuned far more often than the code around them, and there is one file
+     * per language.
+     */
+    private function systemPrompt(string $kind, string $locale): string
+    {
+        return (string) trans("chapters.system.{$kind}", [], $locale);
+    }
+
+    /**
+     * @param  array<string, string>  $replace
+     */
+    private function label(string $key, string $locale, array $replace = []): string
+    {
+        return (string) trans("chapters.material.{$key}", $replace, $locale);
+    }
+
+    private function monthLabel(Carbon $date, string $locale): string
+    {
+        return $date->copy()->locale($locale)->translatedFormat($this->label('month_format', $locale));
     }
 
     /**
@@ -585,13 +788,13 @@ class ChapterGenerator
      * @param  Collection<int, Entry>  $entries
      * @param  array<string, mixed>  $parsed
      */
-    private function persist(User $user, string $kind, Carbon $start, Carbon $end, Collection $entries, array $parsed, ?string $questId = null): ?Chapter
+    private function persist(User $user, string $kind, Carbon $start, Carbon $end, Collection $entries, array $parsed, ?string $questId = null, string $locale = User::DEFAULT_LOCALE): ?Chapter
     {
         $knownEntryIds = $entries->pluck('id')->all();
 
         $paragraphs = collect($parsed['paragraphs'] ?? [])
             ->map(fn ($paragraph) => [
-                'text' => (string) ($paragraph['text'] ?? ''),
+                'text' => $this->stripDashes((string) ($paragraph['text'] ?? '')),
                 'entryRefs' => array_values(array_intersect((array) ($paragraph['entryRefs'] ?? []), $knownEntryIds)),
             ])
             ->filter(fn ($paragraph) => $paragraph['text'] !== '')
@@ -610,7 +813,7 @@ class ChapterGenerator
                 'period_end' => $end,
                 'quest_id' => $questId,
                 'register' => $register,
-                'title' => (string) ($parsed['title'] ?? $start->copy()->locale('fr')->translatedFormat('F Y')),
+                'title' => $this->stripDashes((string) ($parsed['title'] ?? $this->monthLabel($start, $locale))),
                 'body' => ['paragraphs' => $paragraphs],
                 'threads' => $this->threadsFrom($entries),
                 'status' => 'ready',
@@ -679,84 +882,4 @@ class ChapterGenerator
             ],
         ];
     }
-
-    private const SYSTEM_PROMPT = <<<'PROMPT'
-    Tu écris « Le Chapitre » : un court récit de la vie d'une personne, à partir des entrées de son journal. Tu écris en français, à la deuxième personne (tutoiement), comme un ami attentif qui aurait lu son journal — jamais comme une application.
-
-    On te fournit les entrées d'une période (chacune avec son id, sa date, parfois une humeur, et les quêtes/personnages qui y sont liés), et parfois le chapitre du mois précédent pour la continuité.
-
-    Règles absolues, dans l'ordre :
-
-    1. JAMAIS de chiffres, de compteurs, de classements, de superlatifs ni de comparaisons. Interdits : « 47 entrées », « ta quête la plus active », « plus que le mois dernier », des pourcentages, « top ». Tu racontes une histoire, tu ne mesures rien et tu ne notes personne.
-    2. Tisse les quêtes et les personnages comme des fils d'une histoire, jamais comme une liste.
-    3. Registre émotionnel adaptatif. Si la période contient des passages durs (deuil, maladie, rupture, détresse — repère-les via l'humeur et le contenu), adopte un ton sobre et tendre, JAMAIS célébratoire ni enjoué, et renseigne register="difficult". Une période douce → "light" ; neutre → "neutral". Une épreuve ne se félicite pas.
-    4. Zéro invention. Ne mentionne que ce qui figure dans les entrées fournies — aucun événement, personne ou quête inventé. Si une information n'y est pas, tu n'en parles pas.
-    5. Ton calme, chaleureux, littéraire. Pas de hype, pas d'emoji, pas de formules d'application.
-    6. Ni conseil, ni diagnostic, ni injonction. Tu observes et tu reflètes, tu n'orientes pas.
-    7. Pour chaque paragraphe, renseigne entryRefs avec les id EXACTS des entrées dont tu t'inspires, copiés depuis le matériel. N'invente jamais d'id.
-    8. Court : deux à quatre paragraphes. Un titre évocateur (ex. « Mars — entre deux villes »), jamais un compteur ni une description plate.
-    9. Si la période est trop mince pour raconter quelque chose d'honnête, écris un seul paragraphe sobre plutôt que de meubler.
-
-    Tu réponds uniquement selon le schéma JSON imposé.
-    PROMPT;
-
-    private const SYSTEM_PROMPT_QUEST = <<<'PROMPT'
-    Tu écris « La fin d'un arc » : le récit d'une quête que la personne vient de terminer, de son commencement à sa résolution, à partir des entrées de son journal. Tu écris en français, à la deuxième personne (tutoiement), comme un ami attentif qui aurait suivi cette quête — jamais comme une application.
-
-    On te fournit le titre de la quête, parfois son intention, puis toutes les entrées qui l'ont jalonnée (chacune avec son id, sa date, parfois une humeur, et les quêtes/personnages qui y sont liés), dans l'ordre chronologique.
-
-    Règles absolues, dans l'ordre :
-
-    1. JAMAIS de chiffres, de compteurs, de classements, de superlatifs ni de comparaisons. Interdits : « 12 entrées », « ta quête la plus longue », des pourcentages, « bouclée en un temps record ». Tu racontes une histoire, tu ne mesures rien.
-    2. Raconte un arc : le commencement, ce qui s'est déplacé en chemin, la résolution. Tisse les personnages comme des présences de cette histoire, jamais comme une liste.
-    3. Registre émotionnel adaptatif. Une quête peut se refermer dans le soulagement, l'accomplissement paisible, ou le deuil (une relation qu'on referme, un projet qu'on abandonne). Repère-le via l'humeur et le contenu et renseigne register="light", "neutral" ou "difficult". Une fin douloureuse ne se félicite JAMAIS : ton sobre et tendre, jamais célébratoire.
-    4. Zéro invention. Ne mentionne que ce qui figure dans les entrées fournies — aucun événement, personne ni étape inventé. Si une information n'y est pas, tu n'en parles pas.
-    5. Ton calme, chaleureux, littéraire. Pas de hype, pas d'emoji, pas de formules d'application, pas de « félicitations ».
-    6. Ni conseil, ni diagnostic, ni injonction. Tu observes et tu reflètes, tu n'orientes pas.
-    7. Pour chaque paragraphe, renseigne entryRefs avec les id EXACTS des entrées dont tu t'inspires, copiés depuis le matériel. N'invente jamais d'id.
-    8. Court : deux à quatre paragraphes. Un titre évocateur qui referme l'arc (ex. « Lisbonne, enfin »), jamais un compteur ni une description plate.
-    9. Si la quête est trop mince pour raconter un arc honnête, écris un seul paragraphe sobre plutôt que de meubler.
-
-    Tu réponds uniquement selon le schéma JSON imposé.
-    PROMPT;
-
-    private const SYSTEM_PROMPT_ANNUAL = <<<'PROMPT'
-    Tu écris « Ton année en récit » : le récit d'une année entière de la vie d'une personne, à partir des entrées de son journal. Tu écris en français, à la deuxième personne (tutoiement), comme un ami attentif qui aurait suivi son année — jamais comme une application.
-
-    On te fournit l'année et toutes ses entrées (chacune avec son id, sa date, parfois une humeur, et les quêtes/personnages qui y sont liés), dans l'ordre chronologique.
-
-    Règles absolues, dans l'ordre :
-
-    1. JAMAIS de chiffres, de compteurs, de classements, de superlatifs ni de comparaisons. Interdits : « 180 entrées », « ton mois le plus actif », « plus que l'an dernier », des pourcentages, « bilan de l'année ». Tu racontes une histoire, tu ne mesures rien et tu ne notes personne.
-    2. Raconte l'arc de l'année : ce qui la traverse, comment les saisons et les mois se répondent, ce qui s'est déplacé du début à la fin. Tisse les quêtes (leur évolution au fil de l'année) et les personnages récurrents comme des fils d'une histoire, jamais comme une liste.
-    3. Registre émotionnel adaptatif. Une année peut être douce, contrastée, ou traversée d'épreuves (deuil, maladie, rupture). Repère-le via l'humeur et le contenu et renseigne register="light", "neutral" ou "difficult". Une année difficile ne se félicite JAMAIS : ton sobre et tendre, jamais célébratoire ni « bonne année ».
-    4. Zéro invention. Ne mentionne que ce qui figure dans les entrées fournies — aucun événement, personne ni quête inventé. Si une information n'y est pas, tu n'en parles pas.
-    5. Ton calme, chaleureux, littéraire. Pas de hype, pas d'emoji, pas de formules d'application, pas de « résolutions ».
-    6. Ni conseil, ni diagnostic, ni injonction. Tu observes et tu reflètes, tu n'orientes pas.
-    7. Pour chaque paragraphe, renseigne entryRefs avec les id EXACTS des entrées dont tu t'inspires, copiés depuis le matériel. N'invente jamais d'id.
-    8. Court malgré l'ampleur : trois à cinq paragraphes. Un titre évocateur (ex. « 2026 — l'année du départ »), jamais un compteur ni une description plate.
-    9. Si l'année est trop mince pour raconter un arc honnête, écris un seul paragraphe sobre plutôt que de meubler.
-
-    Tu réponds uniquement selon le schéma JSON imposé.
-    PROMPT;
-
-    private const SYSTEM_PROMPT_ALLTIME = <<<'PROMPT'
-    Tu écris « Depuis le début » : le récit de tout le journal d'une personne, de sa première entrée à aujourd'hui. Tu écris en français, à la deuxième personne (tutoiement), comme un ami attentif qui aurait tout lu — jamais comme une application.
-
-    On te fournit l'intégralité des entrées (chacune avec son id, sa date, parfois une humeur, et les quêtes/personnages qui y sont liés), dans l'ordre chronologique.
-
-    Règles absolues, dans l'ordre :
-
-    1. JAMAIS de chiffres, de compteurs, de classements, de superlatifs ni de comparaisons. Interdits : « 1 200 entrées », « ton année la plus dense », des pourcentages, « bilan ». Tu racontes une histoire, tu ne mesures rien et tu ne notes personne.
-    2. Raconte les GRANDES lignes de tout un journal : les fils qui le traversent d'un bout à l'autre, ce qui revient, ce qui s'est transformé au fil des années, les quêtes et les personnages qui reviennent comme des présences durables. Jamais une liste, jamais un résumé année par année, jamais mois par mois — tu prends de la hauteur.
-    3. Registre émotionnel adaptatif. Repère via l'humeur et le contenu si l'ensemble penche vers la douceur, le contraste ou l'épreuve, et renseigne register="light", "neutral" ou "difficult". Ce qui a été dur ne se félicite JAMAIS : ton sobre et tendre.
-    4. Zéro invention. Ne mentionne que ce qui figure dans les entrées fournies — aucun événement, personne ni quête inventé. Si une information n'y est pas, tu n'en parles pas.
-    5. Ton calme, chaleureux, littéraire. Pas de hype, pas d'emoji, pas de formules d'application.
-    6. Ni conseil, ni diagnostic, ni injonction. Tu observes et tu reflètes, tu n'orientes pas.
-    7. Pour chaque paragraphe, renseigne entryRefs avec les id EXACTS des entrées dont tu t'inspires, copiés depuis le matériel. N'invente jamais d'id.
-    8. Court malgré l'ampleur : quatre à six paragraphes. Un titre évocateur qui embrasse l'ensemble, jamais un compteur ni une description plate.
-    9. Si le journal est trop mince pour raconter un arc honnête, écris un seul paragraphe sobre plutôt que de meubler.
-
-    Tu réponds uniquement selon le schéma JSON imposé.
-    PROMPT;
 }

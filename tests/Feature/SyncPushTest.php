@@ -60,6 +60,28 @@ class SyncPushTest extends TestCase
         ];
     }
 
+    private function characterChange(string $id, array $overrides = [], string $operation = 'create'): array
+    {
+        return [
+            'entityType' => 'character',
+            'entityId' => $id,
+            'operation' => $operation,
+            'data' => array_merge([
+                'id' => $id,
+                'name' => 'Marie',
+                'relationship' => 'soeur',
+                'note' => '',
+                'photoUri' => '',
+                'remotePhotoUri' => null,
+                'color' => null,
+                'isDeleted' => false,
+                'createdAt' => '2026-05-13T10:00:00.000Z',
+                'updatedAt' => '2026-05-13T10:00:00.000Z',
+                'syncedAt' => null,
+            ], $overrides),
+        ];
+    }
+
     private function attachmentChange(string $id, string $entryId, array $overrides = [], string $operation = 'create'): array
     {
         return [
@@ -280,6 +302,49 @@ class SyncPushTest extends TestCase
         $this->assertNull($att->remote_uri);
         $this->assertSame(800, $att->width);
         $this->assertSame(600, $att->height);
+    }
+
+    /**
+     * The cloud URI is written by the upload endpoint and must survive every
+     * subsequent push. This was true for attachments and audio but not for
+     * characters, where the column was taken straight from the payload — and the
+     * client always sends null, so each character push silently cleared it. That
+     * broke the photo and orphaned the object in the bucket at the same time,
+     * because retention locates files to delete through this column.
+     */
+    public function test_a_character_push_does_not_clear_an_existing_remote_photo_uri(): void
+    {
+        $character = Character::factory()->for($this->user)->create([
+            'remote_photo_uri' => 'https://cdn.test/character-photos/x.jpg',
+            'updated_at' => '2026-05-13 09:00:00.000',
+        ]);
+
+        $this->push([$this->characterChange($character->id, [
+            'name' => 'Marie renommée',
+            'remotePhotoUri' => null,
+            'updatedAt' => '2026-05-13T10:00:00.000Z',
+        ])])->assertOk()->assertJsonCount(1, 'confirmed');
+
+        $character->refresh();
+        $this->assertSame('Marie renommée', $character->name);
+        $this->assertSame('https://cdn.test/character-photos/x.jpg', $character->remote_photo_uri);
+    }
+
+    /** The same invariant for attachments, which the suite never asserted either. */
+    public function test_an_attachment_push_does_not_clear_an_existing_remote_uri(): void
+    {
+        $entry = Entry::factory()->for($this->user)->create();
+        $att = EntryAttachment::factory()->for($entry)->create([
+            'remote_uri' => 'https://cdn.test/attachments/y.jpg',
+            'updated_at' => '2026-05-13 09:00:00.000',
+        ]);
+
+        $this->push([$this->attachmentChange($att->id, $entry->id, [
+            'remoteUri' => null,
+            'updatedAt' => '2026-05-13T10:00:00.000Z',
+        ])])->assertOk();
+
+        $this->assertSame('https://cdn.test/attachments/y.jpg', $att->refresh()->remote_uri);
     }
 
     public function test_b2_push_attachment_with_non_empty_uri_is_still_stored_empty(): void

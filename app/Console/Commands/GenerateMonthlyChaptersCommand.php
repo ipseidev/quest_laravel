@@ -17,7 +17,8 @@ class GenerateMonthlyChaptersCommand extends Command
         {--month= : Single target month as YYYY-MM (defaults to last month)}
         {--since= : Backfill from this month (YYYY-MM), inclusive}
         {--until= : Backfill up to this month (YYYY-MM), inclusive; defaults to last month}
-        {--user= : Limit to a single user id}';
+        {--user= : Limit to a single user id}
+        {--force : Regenerate, replacing any existing chapter for the target month(s)}';
 
     protected $description = 'Generate monthly narrative chapters for eligible users.';
 
@@ -75,6 +76,7 @@ class GenerateMonthlyChaptersCommand extends Command
     {
         $end = $month->copy()->endOfMonth();
         $nextMonth = $month->copy()->addMonth();
+        $force = (bool) $this->option('force');
 
         $eligibleUserIds = Entry::query()
             ->withoutGlobalScope(BelongsToCurrentUserScope::class)
@@ -85,26 +87,29 @@ class GenerateMonthlyChaptersCommand extends Command
             ->havingRaw('count(*) >= ?', [ChapterGenerator::MIN_ENTRIES])
             ->pluck('user_id');
 
-        // Only opted-in users (consent gate, enforced again in ChapterGenerator)
-        // who don't already have a ready chapter for this month — so a re-run or a
-        // backfill is idempotent at dispatch time and never queues no-op jobs.
+        // Only opted-in users (consent gate, enforced again in ChapterGenerator). Without
+        // --force, skip anyone who already has this month's chapter so a re-run or a
+        // backfill is idempotent at dispatch time and never queues no-op jobs; with
+        // --force, dispatch for everyone eligible so each is rewritten.
         $users = User::query()
             ->whereIn('id', $eligibleUserIds)
             ->where('ai_chapters_opt_in', true)
             ->withActiveSubscription()
-            ->whereNotExists(function ($query) use ($month, $nextMonth) {
-                $query->select(DB::raw(1))
-                    ->from('chapters')
-                    ->whereColumn('chapters.user_id', 'users.id')
-                    ->where('chapters.kind', 'monthly')
-                    ->where('chapters.status', 'ready')
-                    ->where('chapters.period_start', '>=', $month)
-                    ->where('chapters.period_start', '<', $nextMonth);
+            ->when(! $force, function ($query) use ($month, $nextMonth) {
+                $query->whereNotExists(function ($sub) use ($month, $nextMonth) {
+                    $sub->select(DB::raw(1))
+                        ->from('chapters')
+                        ->whereColumn('chapters.user_id', 'users.id')
+                        ->where('chapters.kind', 'monthly')
+                        ->where('chapters.status', 'ready')
+                        ->where('chapters.period_start', '>=', $month)
+                        ->where('chapters.period_start', '<', $nextMonth);
+                });
             })
             ->get();
 
         foreach ($users as $user) {
-            GenerateMonthlyChapter::dispatch($user, $month);
+            GenerateMonthlyChapter::dispatch($user, $month, $force);
         }
 
         return $users->count();
