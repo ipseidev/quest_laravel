@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Entry;
 use App\Models\EntryAttachment;
+use App\Models\EntryVideo;
 use App\Models\Quest;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -44,6 +45,23 @@ class IsolationTest extends TestCase
 
         $this->assertNull(EntryAttachment::query()->find($attA->id));
         $this->assertNotNull(EntryAttachment::query()->find($attB->id));
+    }
+
+    public function test_global_scope_filters_foreign_videos(): void
+    {
+        $userA = User::factory()->create();
+        $userB = User::factory()->create();
+
+        $entryA = Entry::factory()->for($userA)->create();
+        $entryB = Entry::factory()->for($userB)->create();
+
+        $videoA = EntryVideo::factory()->for($entryA)->create();
+        $videoB = EntryVideo::factory()->for($entryB)->create();
+
+        $this->actingAs($userB);
+
+        $this->assertNull(EntryVideo::query()->find($videoA->id));
+        $this->assertNotNull(EntryVideo::query()->find($videoB->id));
     }
 
     public function test_scope_inactive_without_auth_context(): void

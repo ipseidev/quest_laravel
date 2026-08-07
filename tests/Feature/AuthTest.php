@@ -199,6 +199,7 @@ class AuthTest extends TestCase
         // BinaryUploadService::store writes.
         Storage::disk('s3')->put("attachments/{$user->id}/a1.jpg", 'x');
         Storage::disk('s3')->put("audio/{$user->id}/au1.m4a", 'x');
+        Storage::disk('s3')->put("videos/{$user->id}/v1.mp4", 'x');
         Storage::disk('s3')->put("character-photos/{$user->id}/c1.jpg", 'x');
         // A different user's binary that must survive (no cross-user deletion).
         Storage::disk('s3')->put("attachments/{$other->id}/keep.jpg", 'x');
@@ -210,6 +211,7 @@ class AuthTest extends TestCase
         // Queue is sync in tests, so DeleteUserBinaries ran inline.
         Storage::disk('s3')->assertMissing("attachments/{$user->id}/a1.jpg");
         Storage::disk('s3')->assertMissing("audio/{$user->id}/au1.m4a");
+        Storage::disk('s3')->assertMissing("videos/{$user->id}/v1.mp4");
         Storage::disk('s3')->assertMissing("character-photos/{$user->id}/c1.jpg");
 
         Storage::disk('s3')->assertExists("attachments/{$other->id}/keep.jpg");

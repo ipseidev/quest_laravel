@@ -29,7 +29,7 @@ Outside Sail, the equivalents are `php artisan ...`. After modifying PHP files, 
 
 ### API surface (`routes/api.php`)
 
-All routes are under `/api`. Public routes: `auth/password/{register,login}`, `auth/apple`, `auth/google`. Everything else is behind `auth:sanctum`. Authenticated identity routes: `POST /auth/logout` (revoke current token), `GET /me` (current user), `DELETE /me` (delete account + all tokens, cascades content). The two sync endpoints (`/sync/push`, `/sync/pull`) additionally pass through `throttle:sync` (60 req/min/user, configurable via `QUEST_RATE_LIMIT_SYNC`). Binary uploads land at `/uploads/{attachments,audio,character-photos}/{id}`.
+All routes are under `/api`. Public routes: `auth/password/{register,login}`, `auth/apple`, `auth/google`. Everything else is behind `auth:sanctum`. Authenticated identity routes: `POST /auth/logout` (revoke current token), `GET /me` (current user), `DELETE /me` (delete account + all tokens, cascades content). The two sync endpoints (`/sync/push`, `/sync/pull`) additionally pass through `throttle:sync` (60 req/min/user, configurable via `QUEST_RATE_LIMIT_SYNC`). Binary uploads land at `/uploads/{attachments,audio,videos,character-photos}/{id}`.
 
 The api middleware stack appends `ForceJsonResponse` (every response is JSON regardless of Accept) and `ValidateJsonBody` (malformed JSON → 400 `bad_request`). Exception renderers in `bootstrap/app.php` translate validation, auth, 404, and bad-request errors into the spec's `{error, message, fields?}` envelope.
 
@@ -39,15 +39,15 @@ Controllers (`app/Http/Controllers/{Auth,Sync,Upload}Controller.php`) are thin: 
 
 - `Services/Sync/SyncPushService` — sorts incoming changes by entity-type priority (content → binary metadata → junctions), runs the whole batch in a single `DB::transaction`, returns `{confirmed, conflicts}`. Conflict = strict `>` on `updated_at` (server wins). Equal timestamps are idempotent (incoming wins). `uri`/`photoUri` from clients is always coerced to `""`; `remote_uri` is preserved server-side and cannot be cleared via push.
 - `Services/Sync/SyncPullService` — strict `updated_at > lastPullTimestamp` filter, emits content with `isDeleted: true` as `operation: upsert`, emits junction deletions from tombstone tables as `operation: delete`. Output is ordered by entity type so the client can apply in dependency order without forward references.
-- `Services/Upload/BinaryUploadService` — MIME whitelist + size cap per kind, 409 on already-uploaded, stores at `<kind>/<user_id>/<entity_id>.<ext>`, bumps `updated_at` so other devices receive the change on next pull. HEIC/HEIF are re-encoded to JPEG via `Intervention\Image` v4 (Imagick driver) with EXIF orientation applied and all metadata stripped.
+- `Services/Upload/BinaryUploadService` — MIME whitelist + size cap per kind, 409 on already-uploaded, stores at `<kind>/<user_id>/<entity_id>.<ext>`, bumps `updated_at` so other devices receive the change on next pull. HEIC/HEIF are re-encoded to JPEG via `Intervention\Image` v4 (Imagick driver) with EXIF orientation applied and all metadata stripped. That re-encode branch is gated on the *kind* (`attachments`, `character-photos`), not only on the bytes: audio and video are ISOBMFF containers with their own `ftyp` box, so a bytes-only sniff could hand a clip to the JPEG encoder.
 - `Services/Auth/{Apple,Google}TokenVerifier` — `firebase/php-jwt` against each provider's JWKS, checks `iss` + `aud`. We intentionally chose this over Socialite (see `BACKEND_HANDOFF.md` §12.a).
 
 ### Models, scopes, and cross-user isolation
 
-Models live flat in `app/Models/` (`User`, `Entry`, `Quest`, `Character`, `EntryAttachment`, `EntryAudio`). Two global scopes in `app/Models/Scopes/` enforce isolation:
+Models live flat in `app/Models/` (`User`, `Entry`, `Quest`, `Character`, `EntryAttachment`, `EntryAudio`, `EntryVideo`, `Quote`, `Chapter`). Two global scopes in `app/Models/Scopes/` enforce isolation:
 
 - `BelongsToCurrentUserScope` — applied to content models, filters by `Auth::id()` when a user is authenticated.
-- `ThroughEntryToCurrentUserScope` — applied to entry-descendant models (attachments, audio) that don't have `user_id` themselves; joins to entry's owner.
+- `ThroughEntryToCurrentUserScope` — applied to entry-descendant models (attachments, audio, videos) that don't have `user_id` themselves; joins to entry's owner.
 
 **Sync push deliberately bypasses these scopes** for the documented silent-skip semantics (a cross-user write must not 4xx — it must be silently dropped so the client doesn't reveal that the foreign ID exists). All other read paths must go through the scopes. If you write a query that needs to see all users (background job, etc.), use `withoutGlobalScope(...)` explicitly.
 
@@ -71,7 +71,7 @@ Title/html/description/name/relationship/note columns on `entries`, `quests`, `c
 
 ### Retention
 
-`app/Console/Commands/PurgeExpiredCommand.php` (registered as `quest:purge-expired`, scheduled in `routes/console.php` daily at 03:00 UTC): hard-deletes soft-deleted content older than 30 days (CASCADE removes child rows), deletes the associated S3 binaries first, then purges junction tombstones older than 90 days. Stats are logged via `Log::info('quest.retention.purge', ...)`.
+`app/Console/Commands/PurgeExpiredCommand.php` (registered as `quest:purge-expired`, scheduled in `routes/console.php` daily at 03:00 UTC): hard-deletes soft-deleted content older than 30 days (CASCADE removes child rows), deletes the associated S3 binaries first, then purges junction tombstones older than 90 days. Account deletion bypasses this path entirely (rows cascade with the user), so `App\Jobs\DeleteUserBinaries` sweeps the bucket prefixes — every kind `BinaryUploadService` can write must be listed in both places or its files outlive the erasure request. Stats are logged via `Log::info('quest.retention.purge', ...)`.
 
 ### Tests
 

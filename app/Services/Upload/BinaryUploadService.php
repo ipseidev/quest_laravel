@@ -48,11 +48,24 @@ class BinaryUploadService
         'audio/mpeg' => 'mp3',
         'audio/wav' => 'wav',
         'audio/x-wav' => 'wav',
+        'video/mp4' => 'mp4',
+        'video/quicktime' => 'mov',
+        'video/x-m4v' => 'm4v',
     ];
+
+    /** Kinds whose bytes are still images, and therefore candidates for the HEIF → JPEG re-encode. */
+    private const IMAGE_KINDS = ['attachments', 'character-photos'];
 
     public function store(string $kind, string $userId, string $entityId, UploadedFile $file): string
     {
-        if ($this->isHeif($file)) {
+        // The HEIF sniff is gated on the KIND, not just on the bytes. `isHeif()`
+        // reads the file's own `ftyp` box, and every ISOBMFF container has one —
+        // voice notes and videos included. The brand list is deliberately limited
+        // to still-image brands, but the consequence of a false positive here is
+        // handing a video to the JPEG encoder and storing a corrupt object, so
+        // kinds that can never legitimately be a still image don't take the
+        // branch at all.
+        if (in_array($kind, self::IMAGE_KINDS, true) && $this->isHeif($file)) {
             return $this->storeAsJpeg($kind, $userId, $entityId, $file);
         }
 

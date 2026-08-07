@@ -51,6 +51,7 @@ pages (CGU, mentions légales, etc.) will live at the root once added.
 |---|---|---|---|---|
 | POST | `/api/uploads/attachments/{attachment_id}` | yes | image/jpeg, png, **heic**, **heif**, webp, gif | 25 MB |
 | POST | `/api/uploads/audio/{audio_id}` | yes | audio/mp4, m4a, aac, mpeg, wav | 50 MB |
+| POST | `/api/uploads/videos/{video_id}` | yes | video/mp4, quicktime, x-m4v | 300 MB |
 | POST | `/api/uploads/character-photos/{character_id}` | yes | (same as attachments) | 25 MB |
 
 **HEIC/HEIF uploads are re-encoded server-side to JPEG (quality 85, EXIF orientation
@@ -299,7 +300,7 @@ Decryption is transparent on read — pull responses contain plaintext. Database
 
 Artisan command: `php artisan quest:purge-expired`, scheduled daily at 03:00 UTC.
 
-- Soft-deleted content (`is_deleted=true`) with `updated_at < now() - 30 days` is hard-deleted (entries, quests, characters, quotes, attachments, audio). CASCADE handles child rows (junctions, attachments under entries).
+- Soft-deleted content (`is_deleted=true`) with `updated_at < now() - 30 days` is hard-deleted (entries, quests, characters, quotes, attachments, audio, videos). CASCADE handles child rows (junctions, attachments/audio/videos under entries).
 - Associated S3 binaries are deleted before the row goes.
 - Junction tombstones with `deleted_at < now() - 90 days` are hard-deleted.
 - Stats logged via `Log::info('quest.retention.purge', $stats)` for observability.
@@ -308,7 +309,7 @@ Artisan command: `php artisan quest:purge-expired`, scheduled daily at 03:00 UTC
 with the user, so they never pass through the retention purge above — their S3
 binaries would be orphaned forever (GDPR erasure gap + storage leak). `deleteMe`
 therefore dispatches `App\Jobs\DeleteUserBinaries`, which removes the user's
-`attachments/{id}`, `audio/{id}` and `character-photos/{id}` prefixes. It runs
+`attachments/{id}`, `audio/{id}`, `videos/{id}` and `character-photos/{id}` prefixes. It runs
 off-request (queued) so a slow/failing object store can neither block nor roll
 back the account deletion. Covered by `AuthTest::test_a14`.
 
@@ -378,6 +379,34 @@ claim is authoritative and matches the `google()` flow, which the spec calls
 per the frozen contract (wire shape unchanged) but they are display hints only
 and never drive matching. Regression coverage: `AuthTest::test_a7b_*` and
 `test_a7c_*`. No request/response shape change — the client is unaffected.
+
+### e. New entity type `entry_video` (additive extension to the frozen spec)
+
+The spec knows two entry-owned binary kinds, `entry_attachment` and
+`entry_audio`. Videos add a third, `entry_video`, shaped identically: it is
+accepted by `/sync/push`, emitted by `/sync/pull` (after its parent entry, before
+the junctions), uploaded at `/api/uploads/videos/{video_id}`, metered by the
+free-tier media quota, and purged by retention alongside the other two.
+
+**Payload** — `{id, entryId, uri, remoteUri, durationMs, width, height,
+isDeleted, createdAt, updatedAt, syncedAt}`. Same rules as the other binary
+kinds: client `uri` is coerced to `""`, and `remote_uri` already on record is
+preserved and cannot be cleared by a push.
+
+**No poster-frame field.** The client extracts a thumbnail on device and keeps it
+local (`entry_videos.thumb_uri` in the client's SQLite, absent from the wire
+payload and from this server's schema). It is derived data, regenerable from the
+clip on any device, so replicating it would cost storage and bandwidth for
+nothing.
+
+**Two caps, for different reasons.** Duration is a product limit enforced
+client-side (60 s free, uncapped with Nacre Plus). The 300 MB per-file ceiling
+here is a transport limit and applies to everyone — raising it requires raising
+`upload_max_filesize` / `post_max_size` too, or a clean 413 becomes a broken
+request.
+
+**Older clients are unaffected**: they never send `entry_video` and ignore
+unknown `entityType` values on pull.
 
 ---
 

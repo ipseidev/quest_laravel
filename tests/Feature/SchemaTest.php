@@ -23,6 +23,7 @@ class SchemaTest extends TestCase
             'entry_characters',
             'entry_attachments',
             'entry_audio',
+            'entry_videos',
             'entry_quest_tombstones',
             'entry_character_tombstones',
         ];

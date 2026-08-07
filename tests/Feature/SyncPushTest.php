@@ -6,6 +6,7 @@ use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Models\EntryVideo;
 use App\Models\Quest;
 use App\Models\Quote;
 use App\Models\User;
@@ -386,6 +387,96 @@ class SyncPushTest extends TestCase
         $this->assertSame('', $audio->uri);
         $this->assertSame(12500, $audio->duration_ms);
         $this->assertSame($waveform, $audio->waveform);
+    }
+
+    public function test_video_metadata_stores_dimensions_and_strips_uri(): void
+    {
+        $entry = Entry::factory()->for($this->user)->create();
+        $id = (string) Str::uuid();
+
+        $this->push([[
+            'entityType' => 'entry_video',
+            'entityId' => $id,
+            'operation' => 'create',
+            'data' => [
+                'id' => $id,
+                'entryId' => $entry->id,
+                'uri' => 'file:///videos/clip.mp4',
+                'remoteUri' => null,
+                'durationMs' => 42000,
+                'width' => 1280,
+                'height' => 720,
+                'isDeleted' => false,
+                'createdAt' => '2026-08-05T10:00:00.000Z',
+                'updatedAt' => '2026-08-05T10:00:00.000Z',
+                'syncedAt' => null,
+            ],
+        ]])->assertOk()->assertJsonCount(1, 'confirmed');
+
+        $video = EntryVideo::query()->find($id);
+        $this->assertSame('', $video->uri);
+        $this->assertSame(42000, $video->duration_ms);
+        $this->assertSame(1280, $video->width);
+        $this->assertSame(720, $video->height);
+    }
+
+    public function test_video_push_cannot_clear_an_existing_remote_uri(): void
+    {
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create([
+            'remote_uri' => 'https://bucket.example/videos/u/v.mp4',
+        ]);
+
+        // A later metadata push carrying remoteUri: null must NOT wipe the cloud
+        // URL — retention finds the bucket object only through this column, so
+        // clearing it would orphan the file permanently.
+        $this->push([[
+            'entityType' => 'entry_video',
+            'entityId' => $video->id,
+            'operation' => 'update',
+            'data' => [
+                'id' => $video->id,
+                'entryId' => $entry->id,
+                'uri' => '',
+                'remoteUri' => null,
+                'durationMs' => 42000,
+                'width' => 1280,
+                'height' => 720,
+                'isDeleted' => false,
+                'createdAt' => '2026-08-05T10:00:00.000Z',
+                'updatedAt' => '2030-01-01T00:00:00.000Z',
+                'syncedAt' => null,
+            ],
+        ]])->assertOk()->assertJsonCount(1, 'confirmed');
+
+        $this->assertSame('https://bucket.example/videos/u/v.mp4', $video->refresh()->remote_uri);
+    }
+
+    public function test_video_on_a_foreign_entry_is_silently_skipped(): void
+    {
+        $foreignEntry = Entry::factory()->for(User::factory()->create())->create();
+        $id = (string) Str::uuid();
+
+        $this->push([[
+            'entityType' => 'entry_video',
+            'entityId' => $id,
+            'operation' => 'create',
+            'data' => [
+                'id' => $id,
+                'entryId' => $foreignEntry->id,
+                'uri' => '',
+                'remoteUri' => null,
+                'durationMs' => 1000,
+                'width' => 640,
+                'height' => 480,
+                'isDeleted' => false,
+                'createdAt' => '2026-08-05T10:00:00.000Z',
+                'updatedAt' => '2026-08-05T10:00:00.000Z',
+                'syncedAt' => null,
+            ],
+        ]])->assertOk()->assertExactJson(['confirmed' => [], 'conflicts' => []]);
+
+        $this->assertNull(EntryVideo::query()->withoutGlobalScopes()->find($id));
     }
 
     public function test_cross_user_isolation_silently_skips_foreign_entity(): void

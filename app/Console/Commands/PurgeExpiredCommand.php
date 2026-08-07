@@ -6,6 +6,7 @@ use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Models\EntryVideo;
 use App\Models\Quest;
 use App\Models\Quote;
 use Illuminate\Console\Command;
@@ -32,6 +33,7 @@ class PurgeExpiredCommand extends Command
         $stats = [
             'attachments_purged' => 0,
             'audio_purged' => 0,
+            'videos_purged' => 0,
             'characters_purged' => 0,
             'entries_purged' => 0,
             'quests_purged' => 0,
@@ -63,7 +65,18 @@ class PurgeExpiredCommand extends Command
                 $stats['audio_purged']++;
             });
 
-        // 3. Soft-deleted entries: pre-emptively clean up child binaries (CASCADE will remove their rows).
+        // 3. Soft-deleted videos.
+        EntryVideo::query()
+            ->where('is_deleted', true)
+            ->where('updated_at', '<', $contentCutoff)
+            ->get()
+            ->each(function (EntryVideo $video) use (&$stats) {
+                $stats['s3_files_deleted'] += $this->deleteBinary('videos', $video->entry?->user_id, $video->id, $video->remote_uri);
+                $video->delete();
+                $stats['videos_purged']++;
+            });
+
+        // 4. Soft-deleted entries: pre-emptively clean up child binaries (CASCADE will remove their rows).
         Entry::query()
             ->where('is_deleted', true)
             ->where('updated_at', '<', $contentCutoff)
@@ -85,11 +98,19 @@ class PurgeExpiredCommand extends Command
                         $stats['s3_files_deleted'] += $this->deleteBinary('audio', $entry->user_id, $audio->id, $audio->remote_uri);
                     });
 
+                EntryVideo::query()
+                    ->where('entry_id', $entry->id)
+                    ->whereNotNull('remote_uri')
+                    ->get()
+                    ->each(function (EntryVideo $video) use ($entry, &$stats) {
+                        $stats['s3_files_deleted'] += $this->deleteBinary('videos', $entry->user_id, $video->id, $video->remote_uri);
+                    });
+
                 $entry->delete();
                 $stats['entries_purged']++;
             });
 
-        // 4. Soft-deleted characters: photo cleanup + row.
+        // 5. Soft-deleted characters: photo cleanup + row.
         Character::query()
             ->where('is_deleted', true)
             ->where('updated_at', '<', $contentCutoff)
@@ -102,19 +123,19 @@ class PurgeExpiredCommand extends Command
                 $stats['characters_purged']++;
             });
 
-        // 5. Soft-deleted quests.
+        // 6. Soft-deleted quests.
         $stats['quests_purged'] = Quest::query()
             ->where('is_deleted', true)
             ->where('updated_at', '<', $contentCutoff)
             ->delete();
 
-        // 6. Soft-deleted quotes (standalone, no binary).
+        // 7. Soft-deleted quotes (standalone, no binary).
         $stats['quotes_purged'] = Quote::query()
             ->where('is_deleted', true)
             ->where('updated_at', '<', $contentCutoff)
             ->delete();
 
-        // 7. Tombstones older than 90 days.
+        // 8. Tombstones older than 90 days.
         $stats['entry_quest_tombstones_purged'] = DB::table('entry_quest_tombstones')
             ->where('deleted_at', '<', $tombstoneCutoff)
             ->delete();

@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::post('/uploads/attachments/{attachmentId}', [UploadController::class, 'attachment']);
     Route::post('/uploads/audio/{audioId}', [UploadController::class, 'audio']);
+    Route::post('/uploads/videos/{videoId}', [UploadController::class, 'video']);
     Route::post('/uploads/character-photos/{characterId}', [UploadController::class, 'characterPhoto']);
 
     Route::get('/ai/chapters', [AiChapterController::class, 'index']);

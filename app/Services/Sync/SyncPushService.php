@@ -6,12 +6,14 @@ use App\Http\Resources\CharacterResource;
 use App\Http\Resources\EntryAttachmentResource;
 use App\Http\Resources\EntryAudioResource;
 use App\Http\Resources\EntryResource;
+use App\Http\Resources\EntryVideoResource;
 use App\Http\Resources\QuestResource;
 use App\Http\Resources\QuoteResource;
 use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Models\EntryVideo;
 use App\Models\Quest;
 use App\Models\Quote;
 use App\Models\User;
@@ -27,6 +29,7 @@ class SyncPushService
         'quote' => 1,
         'entry_attachment' => 2,
         'entry_audio' => 2,
+        'entry_video' => 2,
         'entry_quest' => 3,
         'entry_character' => 3,
     ];
@@ -71,6 +74,7 @@ class SyncPushService
             'quote' => $this->handleQuote($user, $change),
             'entry_attachment' => $this->handleEntryAttachment($user, $change),
             'entry_audio' => $this->handleEntryAudio($user, $change),
+            'entry_video' => $this->handleEntryVideo($user, $change),
             'entry_quest' => $this->handleEntryQuest($user, $change),
             'entry_character' => $this->handleEntryCharacter($user, $change),
             default => ['kind' => 'skipped'],
@@ -355,6 +359,63 @@ class SyncPushService
         ]);
         $audio->timestamps = false;
         $audio->save();
+
+        return ['kind' => 'confirmed'];
+    }
+
+    private function handleEntryVideo(User $user, array $change): array
+    {
+        $data = $change['data'];
+        $id = $data['id'] ?? null;
+        $entryId = $data['entryId'] ?? null;
+        $incomingUpdatedAt = IsoDate::parse($data['updatedAt'] ?? null);
+
+        if (! $id || ! $entryId || ! $incomingUpdatedAt) {
+            return ['kind' => 'skipped'];
+        }
+
+        $existing = EntryVideo::query()->withoutGlobalScopes()->find($id);
+
+        if ($existing !== null) {
+            $owner = Entry::query()->withoutGlobalScopes()->find($existing->entry_id);
+            if (! $owner || $owner->user_id !== $user->id) {
+                return ['kind' => 'skipped'];
+            }
+        } else {
+            $owner = Entry::query()->withoutGlobalScopes()->find($entryId);
+            if (! $owner || $owner->user_id !== $user->id) {
+                return ['kind' => 'skipped'];
+            }
+        }
+
+        if ($existing !== null && $existing->updated_at->greaterThan($incomingUpdatedAt)) {
+            return ['kind' => 'conflict', 'payload' => [
+                'entityType' => 'entry_video',
+                'entityId' => $id,
+                'serverVersion' => EntryVideoResource::serialize($existing),
+            ]];
+        }
+
+        $video = $existing ?? new EntryVideo;
+        $video->forceFill([
+            'id' => $id,
+            'entry_id' => $entryId,
+            'uri' => '',
+            // Same rule as entry_attachments/entry_audio: a cloud URI already on
+            // record wins, and the client's value only ever seeds a new row.
+            // Taking it from the payload unconditionally would let a metadata
+            // push clear the column, orphaning the object in the bucket (which
+            // retention finds only through this reference).
+            'remote_uri' => $existing?->remote_uri ?? ($data['remoteUri'] ?? null),
+            'duration_ms' => (int) ($data['durationMs'] ?? 0),
+            'width' => (int) ($data['width'] ?? 0),
+            'height' => (int) ($data['height'] ?? 0),
+            'is_deleted' => $data['isDeleted'] ?? false,
+            'created_at' => IsoDate::parse($data['createdAt'] ?? null) ?? $incomingUpdatedAt,
+            'updated_at' => $incomingUpdatedAt,
+        ]);
+        $video->timestamps = false;
+        $video->save();
 
         return ['kind' => 'confirmed'];
     }

@@ -6,6 +6,7 @@ use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Models\EntryVideo;
 use App\Models\Quest;
 use App\Models\Quote;
 use App\Models\User;
@@ -98,6 +99,56 @@ class RetentionTest extends TestCase
         $this->assertDatabaseMissing('entry_attachments', ['id' => $attachment->id]);
     }
 
+    public function test_purge_deletes_video_binaries_from_s3(): void
+    {
+        Storage::fake('s3');
+
+        $user = User::factory()->create();
+        $entry = Entry::factory()->for($user)->create();
+        $video = EntryVideo::factory()->for($entry)->create([
+            'is_deleted' => true,
+            'remote_uri' => 'https://cdn.example.com/videos/'.$user->id.'/somefile.mp4',
+        ]);
+
+        $path = 'videos/'.$user->id.'/'.$video->id.'.mp4';
+        Storage::disk('s3')->put($path, 'fake-video-bytes');
+
+        $this->setUpdatedAt($video, now()->subDays(31));
+
+        Artisan::call('quest:purge-expired');
+
+        Storage::disk('s3')->assertMissing($path);
+        $this->assertDatabaseMissing('entry_videos', ['id' => $video->id]);
+    }
+
+    /**
+     * A purged ENTRY must take its child videos' bucket objects with it. CASCADE
+     * removes the rows, and the row is the only thing that knows the object's
+     * path — so if the binary isn't deleted first it is orphaned in the bucket
+     * forever, still billed and still holding the user's data.
+     */
+    public function test_purging_an_entry_deletes_its_child_video_binaries(): void
+    {
+        Storage::fake('s3');
+
+        $user = User::factory()->create();
+        $entry = Entry::factory()->for($user)->create(['is_deleted' => true]);
+        $video = EntryVideo::factory()->for($entry)->create([
+            'remote_uri' => 'https://cdn.example.com/videos/'.$user->id.'/clip.mp4',
+        ]);
+
+        $path = 'videos/'.$user->id.'/'.$video->id.'.mp4';
+        Storage::disk('s3')->put($path, 'fake-video-bytes');
+
+        $this->setUpdatedAt($entry, now()->subDays(31));
+
+        Artisan::call('quest:purge-expired');
+
+        Storage::disk('s3')->assertMissing($path);
+        $this->assertDatabaseMissing('entries', ['id' => $entry->id]);
+        $this->assertDatabaseMissing('entry_videos', ['id' => $video->id]);
+    }
+
     public function test_purge_handles_each_content_type(): void
     {
         Storage::fake('s3');
@@ -107,11 +158,13 @@ class RetentionTest extends TestCase
         $oldCharacter = Character::factory()->for($user)->create(['is_deleted' => true]);
         $oldEntry = Entry::factory()->for($user)->create(['is_deleted' => true]);
         $oldAudio = EntryAudio::factory()->for($oldEntry)->create(['is_deleted' => true]);
+        $oldVideo = EntryVideo::factory()->for($oldEntry)->create(['is_deleted' => true]);
 
         $this->setUpdatedAt($oldQuest, now()->subDays(31));
         $this->setUpdatedAt($oldCharacter, now()->subDays(31));
         $this->setUpdatedAt($oldEntry, now()->subDays(31));
         $this->setUpdatedAt($oldAudio, now()->subDays(31));
+        $this->setUpdatedAt($oldVideo, now()->subDays(31));
 
         $recentEntry = Entry::factory()->for($user)->create(['is_deleted' => true]);
         $this->setUpdatedAt($recentEntry, now()->subDays(5));
@@ -122,6 +175,7 @@ class RetentionTest extends TestCase
         $this->assertDatabaseMissing('characters', ['id' => $oldCharacter->id]);
         $this->assertDatabaseMissing('entries', ['id' => $oldEntry->id]);
         $this->assertDatabaseMissing('entry_audio', ['id' => $oldAudio->id]);
+        $this->assertDatabaseMissing('entry_videos', ['id' => $oldVideo->id]);
         $this->assertDatabaseHas('entries', ['id' => $recentEntry->id]);
     }
 

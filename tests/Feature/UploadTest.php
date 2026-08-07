@@ -7,6 +7,7 @@ use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Models\EntryVideo;
 use App\Models\User;
 use App\Services\Upload\BinaryUploadService;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -35,6 +36,20 @@ class UploadTest extends TestCase
     private function bearer(?string $token = null): array
     {
         return ['Authorization' => 'Bearer '.($token ?? $this->token)];
+    }
+
+    /**
+     * Grant the test user Nacre Plus. Video cloud backup is subscriber-only
+     * (`UploadController::videoRequiresPlus`), so every video happy path has to
+     * say so explicitly — a video test on the default free user asserts the
+     * refusal, not the upload.
+     */
+    private function subscribeUser(): void
+    {
+        $this->user->forceFill([
+            'subscription_product_id' => 'annual',
+            'subscription_expires_at' => now()->addYear(),
+        ])->save();
     }
 
     /**
@@ -433,6 +448,180 @@ class UploadTest extends TestCase
             ->postJson('/api/uploads/attachments/'.$att->id, [])
             ->assertStatus(422)
             ->assertJsonPath('error', 'validation');
+    }
+
+    // --- Videos ---
+
+    /**
+     * A video upload whose CLIENT mime type is really the one passed.
+     *
+     * `UploadedFile::fake()->create('clip.mp4', …, 'video/mp4')` does NOT produce
+     * that: the reported mime is applied after construction, while
+     * `getClientMimeType()` — what the whitelist checks — is fixed at construction
+     * from an extension guess, and Symfony guesses `application/mp4` for `.mp4`.
+     * The client sends `video/mp4` explicitly (see `binary-uploads.ts`), so
+     * building the file by hand is what actually reproduces production.
+     */
+    private function fakeVideo(string $name, string $mime, int $kilobytes): UploadedFile
+    {
+        $tmp = tempnam(sys_get_temp_dir(), 'vid_');
+        file_put_contents($tmp, str_repeat("\0", $kilobytes * 1024));
+
+        return new UploadedFile($tmp, $name, $mime, null, true);
+    }
+
+    public function test_upload_valid_video(): void
+    {
+        $this->subscribeUser();
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, [
+                'file' => $this->fakeVideo('clip.mp4', 'video/mp4', 2048),
+            ])
+            ->assertOk()
+            ->assertJsonStructure(['remoteUri']);
+
+        $video->refresh();
+        $this->assertNotNull($video->remote_uri);
+        $this->assertEquals(2048 * 1024, $video->size_bytes);
+        Storage::disk('s3')->assertExists('videos/'.$this->user->id.'/'.$video->id.'.mp4');
+    }
+
+    public function test_upload_quicktime_video_is_stored_as_mov(): void
+    {
+        $this->subscribeUser();
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, [
+                'file' => $this->fakeVideo('clip.mov', 'video/quicktime', 512),
+            ])->assertOk();
+
+        Storage::disk('s3')->assertExists('videos/'.$this->user->id.'/'.$video->id.'.mov');
+    }
+
+    public function test_re_upload_video_returns_409(): void
+    {
+        $this->subscribeUser();
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, [
+                'file' => $this->fakeVideo('clip.mp4', 'video/mp4', 100),
+            ])->assertOk();
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, [
+                'file' => $this->fakeVideo('clip.mp4', 'video/mp4', 100),
+            ])->assertStatus(409);
+    }
+
+    public function test_unsupported_video_mime_returns_415(): void
+    {
+        $this->subscribeUser();
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, [
+                'file' => $this->fakeVideo('clip.avi', 'video/x-msvideo', 100),
+            ])->assertStatus(415);
+    }
+
+    public function test_upload_to_foreign_video_returns_404(): void
+    {
+        $otherEntry = Entry::factory()->for(User::factory()->create())->create();
+        $otherVideo = EntryVideo::factory()->for($otherEntry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$otherVideo->id, [
+                'file' => $this->fakeVideo('clip.mp4', 'video/mp4', 100),
+            ])
+            ->assertStatus(404)
+            ->assertJsonPath('error', 'not_found');
+
+        $this->assertNull($otherVideo->refresh()->remote_uri);
+    }
+
+    /**
+     * An .mp4/.mov is ISOBMFF, exactly like a HEIC — it carries its own `ftyp` box.
+     * Only image kinds may take the HEIF → JPEG branch, or a video would be handed to
+     * Imagick and stored as a corrupt object (or fail outright).
+     */
+    public function test_a_video_upload_is_not_mistaken_for_a_heif_image(): void
+    {
+        $this->subscribeUser();
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create(['remote_uri' => null]);
+
+        // An ftyp box advertising a HEIF still-image brand on a *video* upload: the
+        // bytes would satisfy `isHeif()`, so only the kind gate keeps it out of the
+        // JPEG encoder.
+        $tmp = tempnam(sys_get_temp_dir(), 'mp4_');
+        file_put_contents($tmp, "\x00\x00\x00\x18ftypheic\x00\x00\x02\x00mif1isom".str_repeat("\x00", 64));
+        $file = new UploadedFile($tmp, 'clip.mp4', 'video/mp4', null, true);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, ['file' => $file])
+            ->assertOk();
+
+        // Stored verbatim as .mp4, not re-encoded to .jpg.
+        Storage::disk('s3')->assertExists('videos/'.$this->user->id.'/'.$video->id.'.mp4');
+        Storage::disk('s3')->assertMissing('videos/'.$this->user->id.'/'.$video->id.'.jpg');
+    }
+
+    /**
+     * Video cloud backup is a Nacre Plus feature. Recording stays fully free — the
+     * clip simply lives on the device — so the refusal must be clean and must not
+     * leave a half-stored object behind.
+     */
+    public function test_video_backup_is_refused_for_a_free_account(): void
+    {
+        $entry = Entry::factory()->for($this->user)->create();
+        $video = EntryVideo::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/videos/'.$video->id, [
+                'file' => $this->fakeVideo('clip.mp4', 'video/mp4', 100),
+            ])
+            ->assertStatus(402)
+            ->assertJsonPath('error', 'video_backup_requires_plus');
+
+        $this->assertNull($video->refresh()->remote_uri);
+        Storage::disk('s3')->assertMissing('videos/'.$this->user->id.'/'.$video->id.'.mp4');
+    }
+
+    /**
+     * The counterpart of the rule above, and the reason it exists: one minute of
+     * high-quality phone video can weigh a third of the whole free budget. Clips a
+     * free account already has on the server (backed up while it held Plus, or
+     * before backup became Plus-only) are grandfathered — they must not eat the
+     * photo/voice-note budget the user still has.
+     */
+    public function test_video_bytes_do_not_count_toward_the_free_media_quota(): void
+    {
+        config(['quest.free_media_quota_bytes' => 1024 * 1024]); // 1 MB
+        $entry = Entry::factory()->for($this->user)->create();
+        $old = EntryVideo::factory()->for($entry)
+            ->create(['remote_uri' => 'https://cdn.test/videos/old.mp4']);
+        $old->forceFill(['size_bytes' => 900 * 1024])->save(); // not mass-assignable
+
+        $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        // 900 KB of video + a 300 KB photo exceeds the 1 MB budget on paper. The
+        // photo goes through because only photos, voice notes and character photos
+        // are metered.
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att->id, [
+                'file' => UploadedFile::fake()->create('photo.jpg', 300, 'image/jpeg'),
+            ])
+            ->assertOk();
+
+        $this->assertNotNull($att->refresh()->remote_uri);
     }
 
     // --- Free-tier media backup quota ---

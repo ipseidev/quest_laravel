@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Entry;
 use App\Models\EntryAttachment;
+use App\Models\EntryVideo;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
@@ -102,6 +103,28 @@ class SyncPullTest extends TestCase
                 'remoteUri' => null,
                 'width' => 800,
                 'height' => 600,
+                'isDeleted' => false,
+                'createdAt' => '2026-05-13T10:00:00.000Z',
+                'updatedAt' => '2026-05-13T10:00:00.000Z',
+                'syncedAt' => null,
+            ], $overrides),
+        ];
+    }
+
+    private function videoChange(string $id, string $entryId, array $overrides = [], string $operation = 'create'): array
+    {
+        return [
+            'entityType' => 'entry_video',
+            'entityId' => $id,
+            'operation' => $operation,
+            'data' => array_merge([
+                'id' => $id,
+                'entryId' => $entryId,
+                'uri' => '',
+                'remoteUri' => null,
+                'durationMs' => 30000,
+                'width' => 1280,
+                'height' => 720,
                 'isDeleted' => false,
                 'createdAt' => '2026-05-13T10:00:00.000Z',
                 'updatedAt' => '2026-05-13T10:00:00.000Z',
@@ -240,6 +263,72 @@ class SyncPullTest extends TestCase
         $this->assertNotNull($att);
         $this->assertSame('', $att['data']['uri']);
         $this->assertStringStartsWith('https://cdn.example.com/', $att['data']['remoteUri']);
+    }
+
+    public function test_pull_emits_video_with_remote_uri_and_no_local_uri(): void
+    {
+        $entryId = (string) Str::uuid();
+        $videoId = (string) Str::uuid();
+        $this->push([
+            $this->entryChange($entryId),
+            $this->videoChange($videoId, $entryId),
+        ])->assertOk();
+
+        EntryVideo::query()->where('id', $videoId)
+            ->update(['remote_uri' => 'https://cdn.example.com/videos/'.$videoId.'.mp4']);
+
+        $changes = $this->pull()->json('changes');
+        $video = collect($changes)->firstWhere('entityType', 'entry_video');
+
+        $this->assertNotNull($video);
+        $this->assertSame('', $video['data']['uri']);
+        $this->assertStringStartsWith('https://cdn.example.com/', $video['data']['remoteUri']);
+        $this->assertSame(30000, $video['data']['durationMs']);
+        $this->assertSame(1280, $video['data']['width']);
+        $this->assertSame(720, $video['data']['height']);
+        // No poster frame crosses the wire: it is local, regenerable data.
+        $this->assertArrayNotHasKey('thumbUri', $video['data']);
+    }
+
+    public function test_soft_deleted_video_pulled_as_upsert_with_is_deleted_true(): void
+    {
+        $entryId = (string) Str::uuid();
+        $videoId = (string) Str::uuid();
+
+        $this->push([
+            $this->entryChange($entryId),
+            $this->videoChange($videoId, $entryId),
+        ])->assertOk();
+
+        $this->push([
+            $this->videoChange($videoId, $entryId, ['isDeleted' => true, 'updatedAt' => '2026-05-13T11:00:00.000Z'], 'delete'),
+        ])->assertOk();
+
+        $changes = $this->pull()->json('changes');
+        $video = collect($changes)->firstWhere('entityType', 'entry_video');
+
+        $this->assertSame('upsert', $video['operation']);
+        $this->assertTrue($video['data']['isDeleted']);
+    }
+
+    public function test_pull_emits_video_after_its_parent_entry(): void
+    {
+        $entryId = (string) Str::uuid();
+        $videoId = (string) Str::uuid();
+
+        $this->push([
+            $this->entryChange($entryId),
+            $this->videoChange($videoId, $entryId),
+        ])->assertOk();
+
+        $types = array_column($this->pull()->json('changes'), 'entityType');
+
+        // The client applies changes in order; a video arriving before its entry
+        // would be a forward reference it cannot resolve.
+        $this->assertLessThan(
+            array_search('entry_video', $types, true),
+            array_search('entry', $types, true),
+        );
     }
 
     public function test_b8_soft_deleted_attachment_pulled_with_is_deleted_true(): void

@@ -10,8 +10,15 @@ use App\Models\User;
 
 /**
  * Enforces the free-tier cloud-media backup quota. Text/metadata backup is
- * unmetered; only binaries (photos, audio, character photos) count. Nacre Plus
- * subscribers are unlimited.
+ * unmetered; among binaries, only photos, voice notes and character photos
+ * count. Nacre Plus subscribers are unlimited.
+ *
+ * VIDEO is deliberately absent from the sum. Video cloud backup is a Plus
+ * feature outright (`UploadController::video` refuses free accounts), so a free
+ * clip never reaches the server and there is nothing to meter; for a subscriber
+ * `canStore()` short-circuits before the sum is ever computed. Clips a free
+ * account backed up before that rule existed are grandfathered: they stay on the
+ * server and no longer consume the account's photo/audio budget.
  */
 class BackupQuotaService
 {

@@ -6,12 +6,14 @@ use App\Http\Resources\CharacterResource;
 use App\Http\Resources\EntryAttachmentResource;
 use App\Http\Resources\EntryAudioResource;
 use App\Http\Resources\EntryResource;
+use App\Http\Resources\EntryVideoResource;
 use App\Http\Resources\QuestResource;
 use App\Http\Resources\QuoteResource;
 use App\Models\Character;
 use App\Models\Entry;
 use App\Models\EntryAttachment;
 use App\Models\EntryAudio;
+use App\Models\EntryVideo;
 use App\Models\Quest;
 use App\Models\Quote;
 use App\Models\User;
@@ -26,7 +28,7 @@ class SyncPullService
      */
     public function process(User $user, ?Carbon $lastPullTimestamp): array
     {
-        // All ten reads below must observe ONE consistent snapshot: a push
+        // All eleven reads below must observe ONE consistent snapshot: a push
         // committing between (say) the entries read and the attachments read
         // must not surface a child row without its parent (a cross-table
         // orphan). Postgres defaults to READ COMMITTED — a fresh snapshot per
@@ -107,7 +109,16 @@ class SyncPullService
             ];
         }
 
-        // 7. entry_quest upserts
+        // 7. Entry videos
+        foreach ($this->entryVideos($user, $lastPullTimestamp) as $video) {
+            $changes[] = [
+                'entityType' => 'entry_video',
+                'operation' => 'upsert',
+                'data' => EntryVideoResource::serialize($video),
+            ];
+        }
+
+        // 8. entry_quest upserts
         foreach ($this->junctionRows('entry_quests', 'quest_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_quest',
@@ -116,7 +127,7 @@ class SyncPullService
             ];
         }
 
-        // 8. entry_quest tombstones
+        // 9. entry_quest tombstones
         foreach ($this->tombstoneRows('entry_quest_tombstones', 'quest_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_quest',
@@ -125,7 +136,7 @@ class SyncPullService
             ];
         }
 
-        // 9. entry_character upserts
+        // 10. entry_character upserts
         foreach ($this->junctionRows('entry_characters', 'character_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_character',
@@ -134,7 +145,7 @@ class SyncPullService
             ];
         }
 
-        // 10. entry_character tombstones
+        // 11. entry_character tombstones
         foreach ($this->tombstoneRows('entry_character_tombstones', 'character_id', $user, $lastPullTimestamp) as $row) {
             $changes[] = [
                 'entityType' => 'entry_character',
@@ -205,6 +216,18 @@ class SyncPullService
                 ->whereColumn('entries.id', 'entry_audio.entry_id')
                 ->where('entries.user_id', $user->id))
             ->when($since, fn ($q) => $q->where('entry_audio.updated_at', '>', $since))
+            ->orderBy('updated_at')
+            ->get();
+    }
+
+    private function entryVideos(User $user, ?Carbon $since)
+    {
+        return EntryVideo::query()
+            ->whereExists(fn ($q) => $q->select(DB::raw(1))
+                ->from('entries')
+                ->whereColumn('entries.id', 'entry_videos.entry_id')
+                ->where('entries.user_id', $user->id))
+            ->when($since, fn ($q) => $q->where('entry_videos.updated_at', '>', $since))
             ->orderBy('updated_at')
             ->get();
     }
