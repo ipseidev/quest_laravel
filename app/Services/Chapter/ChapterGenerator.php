@@ -8,6 +8,7 @@ use App\Models\Entry;
 use App\Models\Quest;
 use App\Models\Scopes\BelongsToCurrentUserScope;
 use App\Models\User;
+use App\Support\Mood;
 use Carbon\CarbonInterface;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Client\ConnectionException;
@@ -39,6 +40,13 @@ class ChapterGenerator
 
     /** An all-time recap needs a real body of writing to be worth telling. */
     public const MIN_ALLTIME_ENTRIES = 30;
+
+    /** Below this many mood-tagged entries there is not enough signal to override
+     *  the model's own reading of the period. */
+    private const MOOD_FLOOR_MIN_TAGGED = 4;
+
+    /** Share of TAGGED entries in a heavy family that forces the grave register. */
+    private const MOOD_FLOOR_HEAVY_SHARE = 0.4;
 
     private const MAX_ENTRY_CHARS = 1500;
 
@@ -564,8 +572,12 @@ class ChapterGenerator
 
         $meta = ['id: '.$entry->id, $date];
 
-        if ($entry->mood) {
-            $meta[] = $this->label('mood', $locale).': '.$entry->mood;
+        // Localised, with its family in parentheses for a nuance. The raw key used
+        // to go straight through, so a French chapter read `humeur: overwhelmed`
+        // and nothing said that leaf belonged to the `stressed` family — in the
+        // one call also asked to judge the register. See App\Support\Mood.
+        if ($moodLabel = Mood::label($entry->mood, $locale)) {
+            $meta[] = $this->label('mood', $locale).': '.$moodLabel;
         }
 
         $quests = $entry->quests->pluck('title')->filter()->implode(', ');
@@ -805,6 +817,34 @@ class ChapterGenerator
             ? $parsed['register']
             : 'neutral';
 
+        // The model may only make the register GRAVER than the moods say, never
+        // lighter. It called a July containing a collapsed company, broken plates
+        // and a night in a hotel `neutral`, and it was not being careless: the
+        // prompt defined `neutral` as "ordinary contrast", which is exactly what a
+        // month of highs and lows looks like from above. A taxonomy that invites
+        // averaging will average. The floor removes the judgement call in the one
+        // direction where getting it wrong wounds someone re-reading their worst
+        // month in a cheerful voice.
+        if ($this->moodFloorIsDifficult($entries)) {
+            $register = 'difficult';
+        }
+
+        // The selection, logged and not stored: it is scaffolding for the prose,
+        // not content, and the client's shape stays untouched. But when a chapter
+        // disappoints, what it CHOSE explains most of the rest, and that is
+        // otherwise invisible once the response is parsed. A moment count at the
+        // cap with a wide ref spread is the signature of covering-not-choosing.
+        $moments = collect($parsed['moments'] ?? []);
+        Log::info('quest.chapter.selection', [
+            'user_id' => $user->id,
+            'kind' => $kind,
+            'register' => $register,
+            'register_floored' => $register !== ($parsed['register'] ?? null),
+            'moments' => $moments->pluck('label')->all(),
+            'refs_selected' => $moments->pluck('entryRefs')->flatten()->unique()->count(),
+            'entries_available' => count($knownEntryIds),
+        ]);
+
         try {
             return Chapter::create([
                 'user_id' => $user->id,
@@ -830,6 +870,33 @@ class ChapterGenerator
 
             return null;
         }
+    }
+
+    /**
+     * Does what the person recorded of their own mood force the grave register?
+     *
+     * Only ever escalates (see `persist`). Moods are optional, so this is a floor
+     * and not a verdict: when nothing was tagged it stays silent and the model's
+     * own call stands, which is exactly today's behaviour.
+     *
+     * Share rather than count, over a minimum sample. A count alone would make a
+     * fortnight of pressure in an otherwise good month grave; a share alone would
+     * turn one tagged bad day out of two into a funeral. Nuances resolve to their
+     * family first, so `overwhelmed` counts as `stressed`.
+     *
+     * @param  Collection<int, Entry>  $entries
+     */
+    private function moodFloorIsDifficult(Collection $entries): bool
+    {
+        $tagged = $entries->map(fn (Entry $e) => Mood::base($e->mood))->filter()->values();
+
+        if ($tagged->count() < self::MOOD_FLOOR_MIN_TAGGED) {
+            return false;
+        }
+
+        $heavy = $tagged->filter(fn (string $base) => in_array($base, Mood::HEAVY, true))->count();
+
+        return ($heavy / $tagged->count()) >= self::MOOD_FLOOR_HEAVY_SHARE;
     }
 
     /**
@@ -863,9 +930,38 @@ class ChapterGenerator
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['register', 'title', 'paragraphs'],
+            'required' => ['register', 'moments', 'title', 'paragraphs'],
             'properties' => [
                 'register' => ['type' => 'string', 'enum' => ['light', 'neutral', 'difficult']],
+                /*
+                 * The selection, made explicit and CAPPED.
+                 *
+                 * The prompt asks three times, in three wordings, to keep three or
+                 * four moments and let the rest go. Nothing enforced it, and against
+                 * thirty entries of material that instruction lost every time: the
+                 * model picked four *themes* and packed the whole month into them.
+                 *
+                 * `maxItems` is what does the work here. `minItems` stays at 1 on
+                 * purpose — a thin month should be allowed its single sober
+                 * paragraph rather than be padded up to three.
+                 *
+                 * Committed BEFORE the prose (schema order is emission order), so the
+                 * choice is made while there is still nothing to justify.
+                 */
+                'moments' => [
+                    'type' => 'array',
+                    'minItems' => 1,
+                    'maxItems' => 4,
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'required' => ['label', 'entryRefs'],
+                        'properties' => [
+                            'label' => ['type' => 'string'],
+                            'entryRefs' => ['type' => 'array', 'items' => ['type' => 'string']],
+                        ],
+                    ],
+                ],
                 'title' => ['type' => 'string'],
                 'paragraphs' => [
                     'type' => 'array',

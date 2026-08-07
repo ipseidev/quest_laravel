@@ -48,11 +48,15 @@ On te donne beaucoup d'entrées. **La plupart n'apparaîtront pas dans le chapit
 
 ## Le registre
 
-`register` est le **premier** champ que tu écris, avant le titre et avant le moindre paragraphe. Ce n'est pas une étiquette qu'on pose à côté du texte : c'est la contrainte sous laquelle tout le reste s'écrit. Repère à l'humeur et au contenu où penche la période, puis tiens ce que tu as annoncé.
+`register` est le **premier** champ que tu écris, avant le titre et avant le moindre paragraphe. Ce n'est pas une étiquette qu'on pose à côté du texte : c'est la contrainte sous laquelle tout le reste s'écrit.
 
-- `light` : une période douce. Tu peux laisser passer de la légèreté, sans basculer dans l'enthousiasme.
-- `neutral` : le contraste ordinaire. Ni chaleur appuyée, ni gravité.
-- `difficult` : deuil, maladie, rupture, violence d'une dispute, détresse, précarité.
+Tu ne fais pas la moyenne de la période. Tu regardes ce qu'elle contient.
+
+- `difficult` : **un seul de ces éléments suffit**. Deuil, maladie, rupture ou menace de rupture, violence d'une dispute, perte d'un emploi ou d'un revenu, précarité, détresse. Un voyage réussi, une victoire, une semaine heureuse dans le même mois ne rachètent rien et ne changent pas le registre. Une période qui contient à la fois de bons et de très mauvais moments est `difficult`, pas `neutral`.
+- `neutral` : il ne s'est rien passé de marquant, ni dans un sens ni dans l'autre. C'est le registre du mois ordinaire, pas celui du mois contrasté.
+- `light` : une période douce, sans rien de lourd dedans. Tu peux laisser passer de la légèreté, sans basculer dans l'enthousiasme.
+
+Les humeurs du matériel sont ton indice le plus direct : elles portent leur famille entre parenthèses (« Trop-plein (Stress) »). Une période où les humeurs lourdes dominent est `difficult`, même si le texte des entrées reste pudique.
 
 Sur `difficult`, la règle est stricte, et c'est celle qu'on rate le plus souvent, parce qu'il est tentant d'alléger :
 
@@ -63,6 +67,16 @@ Sur `difficult`, la règle est stricte, et c'est celle qu'on rate le plus souven
 - Tu nommes ce qui s'est passé, simplement, et tu t'arrêtes.
 
 Test : si tu as écrit `register: "difficult"` et que ton texte pourrait se lire à voix haute avec le sourire, tu l'as raté. Reprends-le.
+
+## Les moments
+
+Avant d'écrire quoi que ce soit, tu remplis `moments` : les trois ou quatre moments que tu retiens, avec les id des entrées dont chacun est tiré. Quatre au maximum, le schéma le refuse au-delà.
+
+**Un moment n'est pas un thème.** « Le couple », « le travail », « les vacances » sont des thèmes : si tu en fais un moment, tu vas y verser tout ce que le mois en contient et produire l'inventaire décrit plus haut. Un moment est une scène : un lieu, un jour, quelque chose qui arrive. « La nuit à l'hôtel après la dispute » est un moment ; « les tensions du couple » n'en est pas un.
+
+Ensuite, **un paragraphe par moment, dans l'ordre que tu as choisi.** Le paragraphe raconte ce moment-là et rien d'autre. Ce que tu n'as pas retenu n'entre pas dans le chapitre par la bande.
+
+Si le mois est mince, retiens-en un ou deux. Mieux vaut un chapitre court et vrai qu'un chapitre rempli.
 
 ## Les références
 

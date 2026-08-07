@@ -48,11 +48,15 @@ You are given many entries. **Most of them will not appear in the chapter, and t
 
 ## The register
 
-`register` is the **first** field you write, before the title and before a single paragraph. It is not a label set beside the text: it is the constraint the rest is written under. Read where the period leans, from the moods and the content, then hold to what you declared.
+`register` is the **first** field you write, before the title and before a single paragraph. It is not a label set beside the text: it is the constraint the rest is written under.
 
-- `light`: a gentle stretch. Lightness may come through, without tipping into enthusiasm.
-- `neutral`: ordinary contrast. Neither warmth laid on nor gravity.
-- `difficult`: grief, illness, a breakup, the violence of an argument, distress, precarity.
+You do not average the period. You look at what is in it.
+
+- `difficult`: **any one of these is enough**. Grief, illness, a breakup or the threat of one, the violence of an argument, losing a job or an income, precarity, distress. A good trip, a win, a happy week in the same month buy none of it back and do not change the register. A period holding both good moments and very bad ones is `difficult`, not `neutral`.
+- `neutral`: nothing of weight happened, in either direction. This is the register of an ordinary month, not of a month of contrasts.
+- `light`: a gentle stretch with nothing heavy in it. Lightness may come through, without tipping into enthusiasm.
+
+The moods in the material are your most direct clue: each carries its family in parentheses ("Overwhelmed (Stressed)"). A period where heavy moods dominate is `difficult`, however reticent the entries themselves stay.
 
 On `difficult` the rule is strict, and it is the one most often missed, because lightening the load is tempting:
 
@@ -63,6 +67,16 @@ On `difficult` the rule is strict, and it is the one most often missed, because 
 - Name what happened, plainly, and stop.
 
 Test: if you wrote `register: "difficult"` and your text could be read aloud with a smile, you have failed it. Start again.
+
+## The moments
+
+Before writing anything, you fill in `moments`: the three or four moments you keep, each with the ids of the entries it comes from. Four at most, the schema refuses more.
+
+**A moment is not a theme.** "The relationship", "work", "the holiday" are themes: make one of them a moment and you will pour everything the month holds into it, producing the inventory described above. A moment is a scene: a place, a day, something that happens. "The night at the hotel after the argument" is a moment; "tensions in the relationship" is not.
+
+Then, **one paragraph per moment, in the order you chose.** The paragraph tells that moment and nothing else. What you left out does not slip into the chapter sideways.
+
+If the month is thin, keep one or two. A short true chapter beats a filled one.
 
 ## The references
 
