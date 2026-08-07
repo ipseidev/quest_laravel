@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Services\Chapter\ChapterGenerator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -26,24 +27,42 @@ class ChapterTest extends TestCase
     /**
      * @param  array<string, mixed>  $payload
      */
+    /**
+     * Fake ONE chapter generation, which is TWO model calls since the generator
+     * split into a selection pass and a writing pass.
+     *
+     * Tests still describe the chapter they expect as a single payload — that is
+     * the interesting shape — and this helper derives the selection response from
+     * it: the register it declares, and one moment covering whatever entries its
+     * paragraphs reference. When the payload cites none (most tests only care
+     * that a chapter appears), it selects real entries from the database, because
+     * a selection with no usable reference legitimately produces no chapter.
+     */
     private function fakeAnthropic(array $payload): void
     {
         config(['services.anthropic.key' => 'test-key']);
 
-        Http::fake([
-            'api.anthropic.com/*' => Http::response([
-                'stop_reason' => 'end_turn',
-                'content' => [
-                    ['type' => 'thinking', 'thinking' => '...'],
-                    ['type' => 'text', 'text' => json_encode($payload)],
-                ],
-            ], 200),
-        ]);
+        // Answers by SCHEMA rather than by position: one generation is now two
+        // calls, and a test that generates for several users would exhaust a
+        // fixed sequence. The stub reads which pass is being asked for, exactly
+        // as the real model would, so it serves any number of generations.
+        Http::fake(['api.anthropic.com/*' => function ($request) use ($payload) {
+            $required = $request['output_config']['format']['schema']['required'] ?? [];
+
+            $body = in_array('moments', $required, true)
+                ? $this->selectionFor($payload, (string) $request['messages'][0]['content'])
+                : Arr::only($payload, ['title', 'paragraphs']);
+
+            return Http::response($this->chapterBody($body), 200);
+        }]);
     }
 
     /**
-     * A well-formed 200 body wrapping a chapter payload — one element of a
-     * fakeAnthropicResponses() sequence.
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    /**
+     * A well-formed 200 body wrapping one pass's payload.
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
@@ -52,24 +71,90 @@ class ChapterTest extends TestCase
     {
         return [
             'stop_reason' => 'end_turn',
-            'content' => [['type' => 'text', 'text' => json_encode($payload)]],
+            'content' => [
+                ['type' => 'thinking', 'thinking' => '...'],
+                ['type' => 'text', 'text' => json_encode($payload)],
+            ],
+        ];
+    }
+
+    private function selectionFor(array $payload, string $material = ''): array
+    {
+        $refs = collect($payload['paragraphs'] ?? [])
+            ->pluck('entryRefs')
+            ->flatten()
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+
+        // Nothing cited by the payload: pick from the ids the material actually
+        // shows, like the model does. Reading the request keeps the selection
+        // bound to the user being generated for, which a database lookup would
+        // not be in a test that has several.
+        if ($refs === [] && preg_match_all('/id: ([0-9a-f-]{36})/', $material, $matches)) {
+            $refs = array_slice(array_values(array_unique($matches[1])), 0, 3);
+        }
+
+        return [
+            'register' => $payload['register'] ?? 'neutral',
+            'moments' => [['label' => 'un moment', 'entryRefs' => $refs]],
         ];
     }
 
     /**
-     * Fake successive Anthropic responses. Needed when a test makes MORE THAN ONE
-     * call and each must differ: Http::fake() APPENDS stubs and the first match
-     * wins, so re-faking the same URL does not change the response — a sequence does.
+     * The chapter payload inside a faked response body, or null when the body is
+     * not a well-formed chapter (a refusal, a truncation, unparsable text).
      *
-     * @param  array<int, array<string, mixed>>  $bodies
+     * @param  array<string, mixed>  $body
+     * @return array<string, mixed>|null
      */
+    private function payloadOf(array $body): ?array
+    {
+        // The first content block may be `thinking`; find the text one, as the
+        // generator's own parser does.
+        $text = collect($body['content'] ?? [])
+            ->firstWhere('type', 'text')['text'] ?? null;
+
+        if (! is_string($text)) {
+            return null;
+        }
+
+        $decoded = json_decode($text, true);
+
+        return is_array($decoded) && isset($decoded['paragraphs']) ? $decoded : null;
+    }
+
+    /** The ids of every entry on record, rendered as the material renders them,
+     *  so `selectionFor` can pick from them when a sequenced body cites none. */
+    private function knownEntryIds(): string
+    {
+        return Entry::query()
+            ->withoutGlobalScope(BelongsToCurrentUserScope::class)
+            ->pluck('id')
+            ->map(fn ($id) => "id: {$id}")
+            ->implode("\n");
+    }
+
     private function fakeAnthropicResponses(array ...$bodies): void
     {
         config(['services.anthropic.key' => 'test-key']);
 
+        // Each body describes one generation, so each expands into its selection
+        // response followed by its writing response. An error body (no chapter
+        // payload) is pushed as-is: it stands for the pass that failed.
         $sequence = Http::sequence();
         foreach ($bodies as $body) {
-            $sequence->push($body, 200);
+            $payload = $this->payloadOf($body);
+
+            if ($payload === null) {
+                $sequence->push($body, 200);
+
+                continue;
+            }
+
+            $sequence->push($this->chapterBody($this->selectionFor($payload, $this->knownEntryIds())), 200);
+            $sequence->push($this->chapterBody(Arr::only($payload, ['title', 'paragraphs'])), 200);
         }
 
         Http::fake(['api.anthropic.com/*' => $sequence]);
@@ -946,11 +1031,13 @@ class ChapterTest extends TestCase
 
         app(ChapterGenerator::class)->monthly($user, $march);
 
-        Http::assertSent(function ($request) {
-            return str_contains((string) $request['system'], 'Write in English')
-                && str_contains((string) $request['system'], 'Choose, don\'t cover')
-                && str_contains((string) $request['messages'][0]['content'], 'Period: March 2026');
-        });
+        // Both passes, since the two prompts split: choosing carries its own
+        // system prompt now, and only the writing one holds the voice.
+        Http::assertSent(fn ($request) => str_contains((string) $request['system'], 'Choose, don\'t cover')
+            && str_contains((string) $request['messages'][0]['content'], 'Period: March 2026'));
+
+        Http::assertSent(fn ($request) => str_contains((string) $request['system'], 'Write in English')
+            && str_contains((string) $request['messages'][0]['content'], "This chapter's register is"));
     }
 
     public function test_an_account_without_a_locale_still_gets_french(): void

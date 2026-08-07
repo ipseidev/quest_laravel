@@ -8,6 +8,7 @@ use App\Models\Scopes\BelongsToCurrentUserScope;
 use App\Models\User;
 use App\Services\Chapter\ChapterGenerator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -25,15 +26,36 @@ class SampleChapterTest extends TestCase
     /**
      * @param  array<string, mixed>  $payload
      */
+    /**
+     * One generation is two model calls (selection, then writing). The stub
+     * answers by schema rather than by position, so it serves either pass and any
+     * number of generations. Same shape as ChapterTest's.
+     */
     private function fakeAnthropic(array $payload): void
     {
         config(['services.anthropic.key' => 'test-key']);
-        Http::fake([
-            'api.anthropic.com/*' => Http::response([
+
+        Http::fake(['api.anthropic.com/*' => function ($request) use ($payload) {
+            $required = $request['output_config']['format']['schema']['required'] ?? [];
+
+            if (in_array('moments', $required, true)) {
+                preg_match_all('/id: ([0-9a-f-]{36})/', (string) $request['messages'][0]['content'], $matches);
+                $body = [
+                    'register' => $payload['register'] ?? 'neutral',
+                    'moments' => [[
+                        'label' => 'un moment',
+                        'entryRefs' => array_slice(array_values(array_unique($matches[1])), 0, 3),
+                    ]],
+                ];
+            } else {
+                $body = Arr::only($payload, ['title', 'paragraphs']);
+            }
+
+            return Http::response([
                 'stop_reason' => 'end_turn',
-                'content' => [['type' => 'text', 'text' => json_encode($payload)]],
-            ], 200),
-        ]);
+                'content' => [['type' => 'text', 'text' => json_encode($body)]],
+            ], 200);
+        }]);
     }
 
     /**

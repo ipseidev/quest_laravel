@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Chapter;
 use App\Models\Entry;
 use App\Models\User;
 use App\Services\Chapter\ChapterGenerator;
@@ -24,18 +25,35 @@ class ChapterRegisterTest extends TestCase
     use RefreshDatabase;
 
     /**
-     * @param  array<string, mixed>  $payload
+     * One generation, two calls. The stub answers by schema: the selection pass
+     * declares the register the test wants tested, the writing pass returns the
+     * prose. Moments are picked from the ids the material actually shows.
      */
-    private function fakeAnthropic(array $payload): void
+    private function fakeAnthropic(string $register): void
     {
         config(['services.anthropic.key' => 'test-key']);
 
-        Http::fake([
-            'api.anthropic.com/*' => Http::response([
+        Http::fake(['api.anthropic.com/*' => function ($request) use ($register) {
+            $required = $request['output_config']['format']['schema']['required'] ?? [];
+
+            if (in_array('moments', $required, true)) {
+                preg_match_all('/id: ([0-9a-f-]{36})/', (string) $request['messages'][0]['content'], $matches);
+                $body = [
+                    'register' => $register,
+                    'moments' => [[
+                        'label' => 'un moment',
+                        'entryRefs' => array_slice(array_values(array_unique($matches[1])), 0, 2),
+                    ]],
+                ];
+            } else {
+                $body = ['title' => 'Juillet', 'paragraphs' => [['text' => 'Quelque chose est arrivé.', 'entryRefs' => []]]];
+            }
+
+            return Http::response([
                 'stop_reason' => 'end_turn',
-                'content' => [['type' => 'text', 'text' => json_encode($payload)]],
-            ], 200),
-        ]);
+                'content' => [['type' => 'text', 'text' => json_encode($body)]],
+            ], 200);
+        }]);
     }
 
     /** @param  list<?string>  $moods */
@@ -49,14 +67,9 @@ class ChapterRegisterTest extends TestCase
         }
     }
 
-    private function generate(User $user, Carbon $month, string $modelRegister): ?\App\Models\Chapter
+    private function generate(User $user, Carbon $month, string $modelRegister): ?Chapter
     {
-        $this->fakeAnthropic([
-            'register' => $modelRegister,
-            'moments' => [['label' => 'un moment', 'entryRefs' => []]],
-            'title' => 'Juillet',
-            'paragraphs' => [['text' => 'Quelque chose est arrivé.', 'entryRefs' => []]],
-        ]);
+        $this->fakeAnthropic($modelRegister);
 
         return app(ChapterGenerator::class)->monthly($user, $month);
     }

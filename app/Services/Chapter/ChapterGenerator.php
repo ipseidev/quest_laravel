@@ -50,6 +50,14 @@ class ChapterGenerator
 
     private const MAX_ENTRY_CHARS = 1500;
 
+    /**
+     * Per-entry cap for the WRITING pass. Not a budget: by then only a handful of
+     * entries are in play, so this is a sanity ceiling against a single pathological
+     * day, not a share of anything. A day past this still gets its middle cut with
+     * a visible marker, as before.
+     */
+    private const WHOLE_ENTRY_CHARS = 12000;
+
     /** Floor for a single entry's excerpt when a period is very active. */
     private const MIN_ENTRY_CHARS = 250;
 
@@ -100,10 +108,13 @@ class ChapterGenerator
 
         $locale = $user->chapterLocale();
 
-        $parsed = $this->complete(
-            $this->systemPrompt('monthly', $locale),
-            $this->buildMaterial($start, $entries, $this->previousMonthlyChapter($user, $start), $locale),
-            self::schema(),
+        $previous = $this->previousMonthlyChapter($user, $start);
+
+        $parsed = $this->narrate(
+            'monthly',
+            $entries,
+            fn (Collection $es, ?int $cap) => $this->buildMaterial($start, $es, $previous, $locale, $cap),
+            $locale,
             ['user_id' => $user->id, 'kind' => 'monthly', 'period' => $start->format('Y-m'), 'locale' => $locale],
         );
 
@@ -166,10 +177,11 @@ class ChapterGenerator
 
         $locale = $user->chapterLocale();
 
-        $parsed = $this->complete(
-            $this->systemPrompt('quest', $locale),
-            $this->buildQuestMaterial($quest, $entries, $locale),
-            self::schema(),
+        $parsed = $this->narrate(
+            'quest',
+            $entries,
+            fn (Collection $es, ?int $cap) => $this->buildQuestMaterial($quest, $es, $locale, $cap),
+            $locale,
             ['user_id' => $user->id, 'kind' => 'quest', 'quest_id' => $quest->id, 'locale' => $locale],
         );
 
@@ -208,10 +220,11 @@ class ChapterGenerator
 
         $locale = $user->chapterLocale();
 
-        $parsed = $this->complete(
-            $this->systemPrompt('annual', $locale),
-            $this->buildAnnualMaterial($year, $entries, $locale),
-            self::schema(),
+        $parsed = $this->narrate(
+            'annual',
+            $entries,
+            fn (Collection $es, ?int $cap) => $this->buildAnnualMaterial($year, $es, $locale, $cap),
+            $locale,
             ['user_id' => $user->id, 'kind' => 'annual', 'period' => (string) $year, 'locale' => $locale],
         );
 
@@ -252,10 +265,11 @@ class ChapterGenerator
 
         // Generate FIRST — before touching the DB — so a failed or refused
         // regeneration leaves the existing all-time chapter intact.
-        $parsed = $this->complete(
-            $this->systemPrompt('alltime', $locale),
-            $this->buildAllTimeMaterial($entries, $locale),
-            self::schema(),
+        $parsed = $this->narrate(
+            'alltime',
+            $entries,
+            fn (Collection $es, ?int $cap) => $this->buildAllTimeMaterial($es, $locale, $cap),
+            $locale,
             ['user_id' => $user->id, 'kind' => 'alltime', 'period' => 'all', 'locale' => $locale],
         );
 
@@ -395,7 +409,7 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildMaterial(Carbon $start, Collection $entries, ?Chapter $previous, string $locale): string
+    private function buildMaterial(Carbon $start, Collection $entries, ?Chapter $previous, string $locale, ?int $cap = null): string
     {
         $lines = [
             $this->label('period', $locale, ['period' => $this->monthLabel($start, $locale)]),
@@ -403,7 +417,7 @@ class ChapterGenerator
         ];
 
         array_push($lines, ...$this->rosterLines($entries, $locale));
-        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading'));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading', $cap));
 
         if ($previous !== null) {
             $lines[] = '';
@@ -420,7 +434,7 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildQuestMaterial(Quest $quest, Collection $entries, string $locale): string
+    private function buildQuestMaterial(Quest $quest, Collection $entries, string $locale, ?int $cap = null): string
     {
         $lines = [$this->label('quest', $locale, ['title' => (string) $quest->title])];
 
@@ -431,7 +445,7 @@ class ChapterGenerator
         $lines[] = '';
 
         array_push($lines, ...$this->rosterLines($entries, $locale, includeQuests: false));
-        array_push($lines, ...$this->entryLines($entries, $locale, 'quest_entries_heading'));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'quest_entries_heading', $cap));
 
         return implode("\n", $lines);
     }
@@ -439,7 +453,7 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildAnnualMaterial(int $year, Collection $entries, string $locale): string
+    private function buildAnnualMaterial(int $year, Collection $entries, string $locale, ?int $cap = null): string
     {
         // Same shape as the monthly material — the year's entries in order, preceded by
         // the roster. The per-entry cap bounds each line; a future total-material budget
@@ -447,7 +461,7 @@ class ChapterGenerator
         $lines = [$this->label('year', $locale, ['year' => (string) $year]), ''];
 
         array_push($lines, ...$this->rosterLines($entries, $locale));
-        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading'));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading', $cap));
 
         return implode("\n", $lines);
     }
@@ -455,12 +469,12 @@ class ChapterGenerator
     /**
      * @param  Collection<int, Entry>  $entries
      */
-    private function buildAllTimeMaterial(Collection $entries, string $locale): string
+    private function buildAllTimeMaterial(Collection $entries, string $locale, ?int $cap = null): string
     {
         $lines = [$this->label('all_time', $locale), ''];
 
         array_push($lines, ...$this->rosterLines($entries, $locale));
-        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading'));
+        array_push($lines, ...$this->entryLines($entries, $locale, 'entries_heading', $cap));
 
         return implode("\n", $lines);
     }
@@ -472,11 +486,11 @@ class ChapterGenerator
      * @param  Collection<int, Entry>  $entries
      * @return array<int, string>
      */
-    private function entryLines(Collection $entries, string $locale, string $headingKey): array
+    private function entryLines(Collection $entries, string $locale, string $headingKey, ?int $cap = null): array
     {
         $lines = [$this->label($headingKey, $locale), ''];
 
-        $cap = $this->perEntryBudget($entries->count());
+        $cap = $cap ?? $this->perEntryBudget($entries->count());
         foreach ($entries as $entry) {
             array_push($lines, ...$this->formatEntryLines($entry, $cap, $locale));
         }
@@ -813,37 +827,12 @@ class ChapterGenerator
             ->values()
             ->all();
 
+        // Already settled by `resolveRegister` between the two passes, so the prose
+        // was written under it. Re-validated rather than trusted: this method is
+        // the last gate before the row.
         $register = in_array($parsed['register'] ?? null, ['light', 'neutral', 'difficult'], true)
             ? $parsed['register']
             : 'neutral';
-
-        // The model may only make the register GRAVER than the moods say, never
-        // lighter. It called a July containing a collapsed company, broken plates
-        // and a night in a hotel `neutral`, and it was not being careless: the
-        // prompt defined `neutral` as "ordinary contrast", which is exactly what a
-        // month of highs and lows looks like from above. A taxonomy that invites
-        // averaging will average. The floor removes the judgement call in the one
-        // direction where getting it wrong wounds someone re-reading their worst
-        // month in a cheerful voice.
-        if ($this->moodFloorIsDifficult($entries)) {
-            $register = 'difficult';
-        }
-
-        // The selection, logged and not stored: it is scaffolding for the prose,
-        // not content, and the client's shape stays untouched. But when a chapter
-        // disappoints, what it CHOSE explains most of the rest, and that is
-        // otherwise invisible once the response is parsed. A moment count at the
-        // cap with a wide ref spread is the signature of covering-not-choosing.
-        $moments = collect($parsed['moments'] ?? []);
-        Log::info('quest.chapter.selection', [
-            'user_id' => $user->id,
-            'kind' => $kind,
-            'register' => $register,
-            'register_floored' => $register !== ($parsed['register'] ?? null),
-            'moments' => $moments->pluck('label')->all(),
-            'refs_selected' => $moments->pluck('entryRefs')->flatten()->unique()->count(),
-            'entries_available' => count($knownEntryIds),
-        ]);
 
         try {
             return Chapter::create([
@@ -870,6 +859,144 @@ class ChapterGenerator
 
             return null;
         }
+    }
+
+    /**
+     * Two passes, because choosing and writing are different jobs and one call
+     * asked to do both will hedge.
+     *
+     * The single call used to read every entry of the period, truncated to
+     * MAX_ENTRY_CHARS, and produce the prose. It covered instead of choosing:
+     * against thirty entries of material, an instruction to keep three moments
+     * loses. And the truncation was not even buying anything — at thirty entries
+     * the per-entry ceiling binds at a quarter of the total budget, so the month
+     * arrived both complete AND amputated, the worst of both.
+     *
+     * Now:
+     *  1. SELECT reads the whole period, excerpted as before (judging that a day
+     *     matters does not need its full text), and returns the register and up
+     *     to four moments.
+     *  2. WRITE receives ONLY the chosen entries, WHOLE, plus the plan and the
+     *     register it must obey. Covering is no longer something it is asked not
+     *     to do; it is something it cannot do, having nothing else in hand.
+     *
+     * The register is resolved BETWEEN the passes, so the mood floor governs the
+     * prose rather than relabelling it afterwards.
+     *
+     * @param  Collection<int, Entry>  $entries
+     * @param  callable(Collection<int, Entry>, ?int): string  $material  Builds the
+     *                                                                    material for a subset of entries at a given per-entry cap.
+     * @param  array<string, mixed>  $logContext
+     * @return array<string, mixed>|null
+     */
+    private function narrate(
+        string $kind,
+        Collection $entries,
+        callable $material,
+        string $locale,
+        array $logContext = [],
+    ): ?array {
+        $selection = $this->complete(
+            $this->systemPrompt('select', $locale),
+            $material($entries, null),
+            self::selectionSchema(),
+            $logContext + ['pass' => 'select'],
+        );
+
+        if ($selection === null) {
+            return null;
+        }
+
+        $register = $this->resolveRegister($selection['register'] ?? null, $entries);
+        $moments = $this->keepMoments($selection['moments'] ?? [], $entries);
+
+        if ($moments === []) {
+            // Nothing selectable: the ids came back hallucinated or empty. Writing
+            // from an empty plan would hand the second pass a blank brief.
+            Log::warning('quest.chapter.empty_selection', $logContext);
+
+            return null;
+        }
+
+        $chosenIds = collect($moments)->pluck('entryRefs')->flatten()->unique()->all();
+        $chosen = $entries->filter(fn (Entry $e) => in_array($e->id, $chosenIds, true))->values();
+
+        Log::info('quest.chapter.selection', $logContext + [
+            'register' => $register,
+            'register_floored' => $register !== ($selection['register'] ?? null),
+            'moments' => collect($moments)->pluck('label')->all(),
+            'entries_chosen' => $chosen->count(),
+            'entries_available' => $entries->count(),
+        ]);
+
+        $written = $this->complete(
+            $this->systemPrompt($kind, $locale),
+            $this->plan($moments, $register, $locale)."\n\n".$material($chosen, self::WHOLE_ENTRY_CHARS),
+            self::writingSchema(),
+            $logContext + ['pass' => 'write'],
+        );
+
+        if ($written === null) {
+            return null;
+        }
+
+        return $written + ['register' => $register];
+    }
+
+    /**
+     * The brief handed to the writing pass: the register it writes under, then
+     * the moments in order. The entries themselves follow, whole.
+     *
+     * @param  list<array{label: string, entryRefs: list<string>}>  $moments
+     */
+    private function plan(array $moments, string $register, string $locale): string
+    {
+        $lines = [
+            $this->label('register_given', $locale, ['register' => $register]),
+            '',
+            $this->label('moments_heading', $locale),
+        ];
+
+        foreach ($moments as $i => $moment) {
+            $lines[] = ($i + 1).'. '.$moment['label'].' ['.implode(', ', $moment['entryRefs']).']';
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Moments with their references narrowed to entries that actually exist, and
+     * empty ones dropped. Same guard as the paragraph refs: a hallucinated id
+     * must not reach the second pass, where it would silently select nothing.
+     *
+     * @param  Collection<int, Entry>  $entries
+     * @return list<array{label: string, entryRefs: list<string>}>
+     */
+    private function keepMoments(mixed $moments, Collection $entries): array
+    {
+        $known = $entries->pluck('id')->all();
+
+        return collect(is_array($moments) ? $moments : [])
+            ->map(fn ($moment) => [
+                'label' => trim((string) ($moment['label'] ?? '')),
+                'entryRefs' => array_values(array_intersect((array) ($moment['entryRefs'] ?? []), $known)),
+            ])
+            ->filter(fn (array $moment) => $moment['entryRefs'] !== [])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * The register the chapter is written under: the model's call, raised to
+     * `difficult` when the moods say so. See `moodFloorIsDifficult`.
+     *
+     * @param  Collection<int, Entry>  $entries
+     */
+    private function resolveRegister(mixed $proposed, Collection $entries): string
+    {
+        $register = in_array($proposed, ['light', 'neutral', 'difficult'], true) ? $proposed : 'neutral';
+
+        return $this->moodFloorIsDifficult($entries) ? 'difficult' : $register;
     }
 
     /**
@@ -925,12 +1052,14 @@ class ChapterGenerator
     /**
      * @return array<string, mixed>
      */
-    private static function schema(): array
+    /** Pass 1: the plan. No prose in this schema at all, so nothing tempts the
+     *  model to start writing before it has finished choosing. */
+    private static function selectionSchema(): array
     {
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['register', 'moments', 'title', 'paragraphs'],
+            'required' => ['register', 'moments'],
             'properties' => [
                 'register' => ['type' => 'string', 'enum' => ['light', 'neutral', 'difficult']],
                 /*
@@ -962,6 +1091,20 @@ class ChapterGenerator
                         ],
                     ],
                 ],
+            ],
+        ];
+    }
+
+    /** Pass 2: the prose. No `register` here — it was settled by the selection
+     *  pass and the mood floor, and is handed to this call as a constraint in
+     *  the material rather than asked for again. */
+    private static function writingSchema(): array
+    {
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'required' => ['title', 'paragraphs'],
+            'properties' => [
                 'title' => ['type' => 'string'],
                 'paragraphs' => [
                     'type' => 'array',
