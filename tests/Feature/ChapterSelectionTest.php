@@ -148,6 +148,63 @@ class ChapterSelectionTest extends TestCase
         $this->assertStringContainsString('Les moments retenus', $this->materialOf('write'));
     }
 
+    /**
+     * The cap used to be `maxItems` in the selection schema. Structured outputs
+     * reject that keyword, so every call 400'd and no chapter was written at all.
+     * The cap now lives in `keepMoments`, which means it needs a behavioural test:
+     * a schema assertion would only re-pin the shape that broke production.
+     */
+    public function test_a_selection_longer_than_the_cap_is_truncated(): void
+    {
+        $user = User::factory()->optedIntoAi()->subscribed()->create();
+        $july = $this->july();
+
+        $entries = collect(range(1, 6))->map(fn (int $i) => Entry::factory()->for($user)->create([
+            'entry_date' => $july->copy()->addDays($i),
+            'html' => "<p>Journée numéro {$i} racontée ici.</p>",
+        ]));
+
+        config(['services.anthropic.key' => 'test-key']);
+
+        Http::fake(['api.anthropic.com/*' => function ($request) use ($entries) {
+            $required = $request['output_config']['format']['schema']['required'] ?? [];
+            $selecting = in_array('moments', $required, true);
+
+            $this->requests[] = [
+                'pass' => $selecting ? 'select' : 'write',
+                'material' => (string) $request['messages'][0]['content'],
+            ];
+
+            // Six moments: exactly what nothing enforces any more at the wire level.
+            $body = $selecting
+                ? [
+                    'register' => 'neutral',
+                    'moments' => $entries->values()
+                        ->map(fn (Entry $e, int $i) => ['label' => "moment {$i}", 'entryRefs' => [$e->id]])
+                        ->all(),
+                ]
+                : ['title' => 'Juillet', 'paragraphs' => [['text' => 'Une phrase.', 'entryRefs' => []]]];
+
+            return Http::response([
+                'stop_reason' => 'end_turn',
+                'content' => [['type' => 'text', 'text' => json_encode($body)]],
+            ], 200);
+        }]);
+
+        $this->assertNotNull(app(ChapterGenerator::class)->monthly($user, $july));
+
+        $writeMaterial = $this->materialOf('write');
+
+        foreach (range(1, 4) as $i) {
+            $this->assertStringContainsString("Journée numéro {$i}", $writeMaterial);
+        }
+
+        // The two beyond the cap never reach the prose, so they cannot be written about.
+        foreach (range(5, 6) as $i) {
+            $this->assertStringNotContainsString("Journée numéro {$i}", $writeMaterial);
+        }
+    }
+
     public function test_a_selection_of_hallucinated_ids_writes_nothing(): void
     {
         $user = User::factory()->optedIntoAi()->subscribed()->create();

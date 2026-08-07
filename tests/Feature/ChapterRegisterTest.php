@@ -170,7 +170,17 @@ class ChapterRegisterTest extends TestCase
         });
     }
 
-    public function test_the_schema_caps_the_selection_at_four_moments(): void
+    /**
+     * Structured outputs accept a subset of JSON Schema, and reject the rest with
+     * a 400 rather than ignoring it. A rejected keyword is invisible here: the
+     * faked transport answers whatever schema it is handed, so the suite stayed
+     * green while every real call failed and no chapter was written at all. That
+     * is precisely what `maxItems` did in production.
+     *
+     * `minItems` IS accepted — verified against the live API, not assumed — so the
+     * floor stays and only the ceiling moved into PHP.
+     */
+    public function test_the_schemas_use_only_keywords_structured_outputs_accept(): void
     {
         $user = User::factory()->optedIntoAi()->subscribed()->create();
         $july = Carbon::parse('2026-07-01');
@@ -178,17 +188,32 @@ class ChapterRegisterTest extends TestCase
         $this->monthOfMoods($user, $july, ['calm', 'joyful', 'proud', 'rested', 'light', 'focused']);
         $this->generate($user, $july, 'neutral');
 
-        Http::assertSent(function ($request) {
-            $schema = $request['output_config']['format']['schema'] ?? [];
-            $moments = $schema['properties']['moments'] ?? null;
+        $schemas = collect(Http::recorded())
+            ->map(fn (array $pair) => $pair[0]['output_config']['format']['schema'] ?? null)
+            ->filter()
+            ->values();
 
-            return $moments !== null
-                && $moments['maxItems'] === 4
-                // 1, not 3: a thin month gets its single sober paragraph rather
-                // than being padded up to a quota.
-                && $moments['minItems'] === 1
-                && in_array('moments', $schema['required'], true);
-        });
+        // Both passes, or the guard is only covering half the surface.
+        $this->assertCount(2, $schemas);
+
+        foreach ($schemas as $schema) {
+            $encoded = json_encode($schema);
+
+            foreach (['maxItems', 'minLength', 'maxLength', 'pattern', 'minimum', 'maximum', 'multipleOf'] as $rejected) {
+                $this->assertStringNotContainsString(
+                    '"'.$rejected.'"',
+                    $encoded,
+                    "Structured outputs reject `{$rejected}`: the request 400s and the chapter is silently dropped.",
+                );
+            }
+        }
+
+        $moments = $schemas->first()['properties']['moments'] ?? null;
+        $this->assertNotNull($moments);
+        // 1, not 3: a thin month gets its single sober paragraph rather than
+        // being padded up to a quota.
+        $this->assertSame(1, $moments['minItems']);
+        $this->assertContains('moments', $schemas->first()['required']);
     }
 
     public function test_mood_vocabulary_resolves_both_tiers(): void

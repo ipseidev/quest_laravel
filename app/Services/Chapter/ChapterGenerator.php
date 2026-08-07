@@ -51,6 +51,16 @@ class ChapterGenerator
     private const MAX_ENTRY_CHARS = 1500;
 
     /**
+     * How many moments a chapter may keep.
+     *
+     * This lived in the selection schema as `maxItems` until the API rejected it:
+     * structured outputs accept `minItems` but not `maxItems`, so every selection
+     * call came back 400 and no chapter was written at all. The cap is enforced in
+     * `keepMoments` instead — the schema can describe the shape, not the size.
+     */
+    private const MAX_MOMENTS = 4;
+
+    /**
      * Per-entry cap for the WRITING pass. Not a budget: by then only a handful of
      * entries are in play, so this is a sanity ceiling against a single pathological
      * day, not a share of anything. A day past this still gets its middle cut with
@@ -969,6 +979,11 @@ class ChapterGenerator
      * empty ones dropped. Same guard as the paragraph refs: a hallucinated id
      * must not reach the second pass, where it would silently select nothing.
      *
+     * This is also where the selection is CAPPED, because the schema cannot do it
+     * (see MAX_MOMENTS). Truncation comes after the empty ones are dropped, so a
+     * moment built entirely on hallucinated ids doesn't burn one of the four
+     * slots — otherwise a bad reference would quietly cost the chapter a scene.
+     *
      * @param  Collection<int, Entry>  $entries
      * @return list<array{label: string, entryRefs: list<string>}>
      */
@@ -982,6 +997,7 @@ class ChapterGenerator
                 'entryRefs' => array_values(array_intersect((array) ($moment['entryRefs'] ?? []), $known)),
             ])
             ->filter(fn (array $moment) => $moment['entryRefs'] !== [])
+            ->take(self::MAX_MOMENTS)
             ->values()
             ->all();
     }
@@ -1070,9 +1086,12 @@ class ChapterGenerator
                  * thirty entries of material that instruction lost every time: the
                  * model picked four *themes* and packed the whole month into them.
                  *
-                 * `maxItems` is what does the work here. `minItems` stays at 1 on
-                 * purpose — a thin month should be allowed its single sober
-                 * paragraph rather than be padded up to three.
+                 * The cap itself cannot live here: structured outputs reject
+                 * `maxItems` on an array (400, "property 'maxItems' is not
+                 * supported"). `keepMoments` truncates to MAX_MOMENTS instead.
+                 * `minItems` IS accepted, and stays at 1 on purpose — a thin month
+                 * should be allowed its single sober paragraph rather than be
+                 * padded up to three.
                  *
                  * Committed BEFORE the prose (schema order is emission order), so the
                  * choice is made while there is still nothing to justify.
@@ -1080,7 +1099,6 @@ class ChapterGenerator
                 'moments' => [
                     'type' => 'array',
                     'minItems' => 1,
-                    'maxItems' => 4,
                     'items' => [
                         'type' => 'object',
                         'additionalProperties' => false,
