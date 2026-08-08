@@ -13,6 +13,7 @@ use App\Services\Upload\BinaryUploadService;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -404,6 +405,45 @@ class UploadTest extends TestCase
         $att->refresh();
         $this->assertNull($att->remote_uri);
         $this->assertEmpty(Storage::disk('s3')->files('attachments/'.$this->user->id));
+    }
+
+    /**
+     * The rejection log has to identify the file, because nothing else survives it.
+     *
+     * From a production incident: the same attachment was refused five times in
+     * thirty-eight seconds and the log carried only Intervention's flattened
+     * sentence, which cannot separate a truncated body from a missing codec. The
+     * bytes are never stored on this path, so whatever the log leaves out is gone.
+     * Two wrong diagnoses were argued from that log before anyone noticed it did
+     * not contain the answer either way.
+     */
+    public function test_a_rejected_image_is_logged_with_enough_to_identify_it(): void
+    {
+        Log::spy();
+
+        $entry = Entry::factory()->for($this->user)->create();
+        $att = EntryAttachment::factory()->for($entry)->create(['remote_uri' => null]);
+
+        $tmp = tempnam(sys_get_temp_dir(), 'heic_');
+        file_put_contents($tmp, "\x00\x00\x00\x18ftypheic\x00\x00\x00\x00mif1heic".str_repeat("\x00", 128));
+        $file = new UploadedFile($tmp, 'broken.heic', 'image/heic', null, true);
+
+        $this->withHeaders($this->bearer())
+            ->post('/api/uploads/attachments/'.$att->id, ['file' => $file])
+            ->assertStatus(415);
+
+        Log::shouldHaveReceived('error')
+            ->withArgs(function (string $message, array $context) {
+                return $message === 'quest.upload.undecodable_image'
+                    && $context['bytes'] === 152
+                    // Both the major brand and the compatible brand that routed it
+                    // into the decoder, deduplicated.
+                    && $context['brands'] === ['heic', 'mif1']
+                    && $context['client_mime'] === 'image/heic'
+                    && strlen((string) $context['digest']) === 16
+                    && $context['cause'] !== '';
+            })
+            ->once();
     }
 
     /**

@@ -107,7 +107,11 @@ class BinaryUploadService
              * here with the same sentence. The underlying message is the only thing
              * that distinguishes them, so it is carried through rather than swallowed.
              */
-            throw new UnsupportedImageException($e->getMessage(), previous: $e);
+            throw new UnsupportedImageException(
+                $e->getMessage(),
+                $this->rejectedImageContext($bytes, $file),
+                previous: $e,
+            );
         }
 
         $path = "{$kind}/{$userId}/{$entityId}.jpg";
@@ -129,8 +133,24 @@ class BinaryUploadService
     {
         $head = (string) file_get_contents($file->getPathname(), false, null, 0, 64);
 
+        return array_intersect($this->ftypBrands($head), self::HEIF_BRANDS) !== [];
+    }
+
+    /**
+     * The ISOBMFF brands declared in the `ftyp` box: the major brand followed by
+     * every compatible brand. Empty for anything that is not ISOBMFF.
+     *
+     * Shared by the routing decision and the rejection log on purpose. When a file
+     * is refused, the log has to show the brands that ROUTED it into the decoder,
+     * not a second opinion computed some other way — otherwise the log cannot be
+     * used to reason about why the file took that branch at all.
+     *
+     * @return list<string>
+     */
+    private function ftypBrands(string $head): array
+    {
         if (strlen($head) < 12 || substr($head, 4, 4) !== 'ftyp') {
-            return false;
+            return [];
         }
 
         $boxSize = min((int) unpack('N', substr($head, 0, 4))[1], strlen($head));
@@ -140,7 +160,30 @@ class BinaryUploadService
             $brands[] = substr($head, $offset, 4);
         }
 
-        return array_intersect($brands, self::HEIF_BRANDS) !== [];
+        return array_values(array_unique($brands));
+    }
+
+    /**
+     * What the log needs to identify a file that could not be decoded, given that
+     * nothing is stored when the decode fails and the bytes are gone immediately
+     * after.
+     *
+     * `digest` is a correlation key rather than a fingerprint of the picture: it
+     * tells an operator whether five rejections are one file retried or five
+     * different broken ones — which is the difference between a single bad
+     * attachment and a decoder that stopped working for everybody.
+     *
+     * @return array<string, mixed>
+     */
+    private function rejectedImageContext(string $bytes, UploadedFile $file): array
+    {
+        return [
+            'bytes' => strlen($bytes),
+            'brands' => $this->ftypBrands(substr($bytes, 0, 64)),
+            'client_mime' => $file->getClientMimeType(),
+            'sniffed_mime' => $this->extensionMime($file),
+            'digest' => substr(hash('sha256', $bytes), 0, 16),
+        ];
     }
 
     /**

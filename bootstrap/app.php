@@ -126,7 +126,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // often than a client one: a missing imagick extension, an ImageMagick policy
         // denying the coder, or libheif with no HEVC decoder all land here.
         $exceptions->render(function (UnsupportedImageException $e, Request $request) {
-            Log::error('quest.upload.undecodable_image', [
+            Log::error('quest.upload.undecodable_image', $e->context + [
                 'user_id' => $request->user()?->id,
                 'path' => $request->path(),
                 'cause' => $e->getMessage(),
