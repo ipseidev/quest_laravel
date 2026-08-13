@@ -65,7 +65,7 @@ return [
         ],
 
         'hero' => [
-            'eyebrow' => 'Private journal for iPhone and iPad',
+            'eyebrow' => 'Private journal for iPhone, iPad and Android',
             'title' => 'Your life is already a story.',
             'promise' => 'Read your life back by thread, not by date.',
             'lead' => 'Every page can attach to what you are living through and the people who matter. Open a quest or a person: everything that touches it comes back in order.',
@@ -617,7 +617,7 @@ return [
             [
                 'group' => 'basics',
                 'q' => 'Which platforms is Nacre on?',
-                'a' => 'iPhone and iPad. The Android version is in closed testing and follows, with the same features — parity between the two platforms is a rule of the project, not an intention.',
+                'a' => 'iPhone, iPad and Android, with the same features everywhere — parity between the two platforms is a rule of the project, not an intention.',
             ],
             [
                 'group' => 'basics',
@@ -785,7 +785,7 @@ return [
             'rows' => [
                 ['label' => 'Name', 'value' => 'Nacre'],
                 ['label' => 'Category', 'value' => 'Journal, lifestyle'],
-                ['label' => 'Platforms', 'value' => 'iPhone and iPad; Android in closed testing'],
+                ['label' => 'Platforms', 'value' => 'iPhone, iPad and Android'],
                 ['label' => 'Languages', 'value' => 'French and English'],
                 ['label' => 'Price', 'value' => 'Free. Nacre Plus optional: :monthly a month or :annual a year'],
                 ['label' => 'Publisher', 'value' => ':publisher, sole trader (France)'],
@@ -821,7 +821,7 @@ return [
 
         'meta' => [
             'title' => 'Download Nacre — a private journal for iPhone and Android',
-            'description' => 'Nacre is free on the App Store. The Android version is in closed testing. No account needed to start writing.',
+            'description' => 'Nacre is free on the App Store and on Google Play. No account needed to start writing.',
         ],
 
         'hero' => [
@@ -837,7 +837,7 @@ return [
 
         'android' => [
             'title' => 'Android',
-            'body' => 'In closed testing, and published as soon as Google’s required testing period ends. The features are the same as on iOS.',
+            'body' => 'On Google Play, from :android_min_os onwards. The features are the same as on iOS.',
         ],
 
         'next' => [

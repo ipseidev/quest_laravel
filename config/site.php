@@ -77,12 +77,9 @@ return [
     | dead link, and the store is left out of the structured data. Filling the
     | URL in is the only change needed to activate it.
     |
-    | iOS: live under Apple ID 6775552461. Note the listing is still titled
-    | "Quest" until the pending 1.0.2 rename to Nacre is approved — see
-    | `previous_name` below, which drives a transitional note near the button.
-    |
-    | Android: closed testing at the time of writing, so no public listing. The
-    | canonical URL is pre-filled as a comment because the package id is known.
+    | Both stores are live in production since 2026-08-11, on 1.0.4. The
+    | "coming soon" branch is kept because it costs nothing and is what a future
+    | platform would reuse, but no configured store goes through it today.
     |
     */
 
@@ -96,17 +93,18 @@ return [
 
         'android' => [
             'package' => 'com.affiniteam.quest',
-            // 'https://play.google.com/store/apps/details?id=com.affiniteam.quest'
-            'url' => env('SITE_PLAY_STORE_URL'),
+            'url' => env('SITE_PLAY_STORE_URL', 'https://play.google.com/store/apps/details?id=com.affiniteam.quest'),
             'min_os' => 'Android 7.0',
         ],
 
         /*
          * Shown next to the App Store button while the store still displays the
-         * old name, so a visitor who taps through isn't surprised. Set to null
-         * the day the rename is approved and the note disappears.
+         * old name, so a visitor who taps through isn't surprised. Now null: the
+         * rename landed and the listing reads "Nacre : Journal, carnet intime",
+         * so the note would be claiming something untrue. The wiring stays for
+         * the next rename.
          */
-        'previous_name' => env('SITE_PREVIOUS_APP_NAME', 'Quest'),
+        'previous_name' => env('SITE_PREVIOUS_APP_NAME'),
     ],
 
     /*

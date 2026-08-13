@@ -305,13 +305,18 @@ class SiteTest extends TestCase
     public function test_store_link_sends_each_device_to_its_own_store(): void
     {
         $iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15';
+        $pixel = 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/120.0.0.0 Mobile';
 
         $this->withHeaders(['User-Agent' => $iphone])
             ->get('/app')
             ->assertRedirect(config('site.stores.ios.url'));
 
-        // With no Play listing configured, a desktop visitor lands on the page that
-        // shows both platforms rather than a dead link.
+        $this->withHeaders(['User-Agent' => $pixel])
+            ->get('/app')
+            ->assertRedirect(config('site.stores.android.url'));
+
+        // Anything that isn't a phone gets the page showing both platforms, because
+        // the right store can't be guessed from the request.
         $this->withHeaders(['User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)'])
             ->get('/app')
             ->assertRedirect(SiteMap::url('download', 'fr'));

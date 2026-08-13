@@ -67,7 +67,7 @@ return [
         ],
 
         'hero' => [
-            'eyebrow' => 'Journal intime pour iPhone et iPad',
+            'eyebrow' => 'Journal intime pour iPhone, iPad et Android',
             'title' => 'Ta vie est déjà une histoire.',
             /*
              * La ligne qui porte le différenciateur. Elle est rendue juste sous le
@@ -632,7 +632,7 @@ return [
             [
                 'group' => 'basics',
                 'q' => 'Sur quelles plateformes Nacre existe-t-il ?',
-                'a' => 'iPhone et iPad. La version Android est en test fermé et arrive ensuite, avec les mêmes fonctions — la parité entre les deux plateformes est une règle du projet, pas une intention.',
+                'a' => 'iPhone, iPad et Android, avec les mêmes fonctions partout — la parité entre les deux plateformes est une règle du projet, pas une intention.',
             ],
             [
                 'group' => 'basics',
@@ -800,7 +800,7 @@ return [
             'rows' => [
                 ['label' => 'Nom', 'value' => 'Nacre'],
                 ['label' => 'Catégorie', 'value' => 'Journal intime, style de vie'],
-                ['label' => 'Plateformes', 'value' => 'iPhone et iPad ; Android en test fermé'],
+                ['label' => 'Plateformes', 'value' => 'iPhone, iPad et Android'],
                 ['label' => 'Langues', 'value' => 'Français et anglais'],
                 ['label' => 'Prix', 'value' => 'Gratuit. Nacre Plus en option : :monthly par mois ou :annual par an'],
                 ['label' => 'Éditeur', 'value' => ':publisher, entrepreneur individuel (France)'],
@@ -836,7 +836,7 @@ return [
 
         'meta' => [
             'title' => 'Télécharger Nacre — journal intime pour iPhone et Android',
-            'description' => 'Nacre est gratuit sur l’App Store. La version Android est en test fermé. Aucun compte requis pour commencer à écrire.',
+            'description' => 'Nacre est gratuit sur l’App Store et sur Google Play. Aucun compte requis pour commencer à écrire.',
         ],
 
         'hero' => [
@@ -852,7 +852,7 @@ return [
 
         'android' => [
             'title' => 'Android',
-            'body' => 'En test fermé, et publié dès la fin de la période de test imposée par Google. Les fonctions sont les mêmes que sur iOS.',
+            'body' => 'Disponible sur Google Play, à partir d’:android_min_os. Les fonctions sont les mêmes que sur iOS.',
         ],
 
         'next' => [
