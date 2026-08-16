@@ -16,6 +16,8 @@ class GoogleAuthRequest extends FormRequest
         return [
             'idToken' => ['required', 'string'],
             'deviceId' => ['required', 'uuid'],
+            'platform' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'appVersion' => ['sometimes', 'nullable', 'string', 'max:32'],
         ];
     }
 }

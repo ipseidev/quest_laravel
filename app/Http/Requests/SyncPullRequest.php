@@ -15,6 +15,8 @@ class SyncPullRequest extends FormRequest
     {
         return [
             'deviceId' => ['required', 'uuid'],
+            'platform' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'appVersion' => ['sometimes', 'nullable', 'string', 'max:32'],
             'lastPullTimestamp' => ['nullable', 'string', 'date'],
         ];
     }

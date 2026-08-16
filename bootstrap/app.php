@@ -86,7 +86,16 @@ return Application::configure(basePath: dirname(__DIR__))
             ], 422);
         });
 
+        // Guarded the same way as the two handlers below. Until the admin panel
+        // existed, nothing but /api could raise this and the guard was unnecessary;
+        // now a signed-out operator hitting /admin raises it too, and answering them
+        // with a JSON 401 breaks the redirect to the login screen. Returning null
+        // hands those back to Laravel, which redirects to the panel's login route.
         $exceptions->render(function (AuthenticationException $e, Request $request) {
+            if (! $request->is('api/*') && ! $request->expectsJson()) {
+                return null;
+            }
+
             return response()->json([
                 'error' => 'unauthenticated',
                 'message' => 'Authentication required.',

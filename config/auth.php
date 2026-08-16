@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Admin;
 use App\Models\User;
 
 return [
@@ -42,6 +43,25 @@ return [
             'driver' => 'session',
             'provider' => 'users',
         ],
+
+        /*
+         * The Filament panel, and the only session guard that is ever actually
+         * authenticated. `web` stays defined because it is the framework default
+         * that `Auth::check()` consults, but nothing logs into it: the mobile API
+         * is Bearer-only via Sanctum and the marketing site has no login.
+         *
+         * That distinction is load-bearing. `BelongsToCurrentUserScope` filters
+         * every content query by `Auth::id()` on the *default* guard, so if the
+         * panel authenticated into `web`, every aggregate on the dashboard would
+         * be silently narrowed to the operator's own rows and report numbers that
+         * look plausible and are wrong. `App\Services\Admin\Metrics` drops the
+         * scopes explicitly rather than relying on this, but keeping the panel off
+         * the default guard removes the trap entirely.
+         */
+        'admin' => [
+            'driver' => 'session',
+            'provider' => 'admins',
+        ],
     ],
 
     /*
@@ -65,6 +85,11 @@ return [
         'users' => [
             'driver' => 'eloquent',
             'model' => env('AUTH_MODEL', User::class),
+        ],
+
+        'admins' => [
+            'driver' => 'eloquent',
+            'model' => Admin::class,
         ],
 
         // 'users' => [

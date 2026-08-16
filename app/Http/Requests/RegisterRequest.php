@@ -17,6 +17,8 @@ class RegisterRequest extends FormRequest
             'email' => ['required', 'email'],
             'password' => ['required', 'string', 'min:8'],
             'deviceId' => ['required', 'uuid'],
+            'platform' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'appVersion' => ['sometimes', 'nullable', 'string', 'max:32'],
         ];
     }
 }

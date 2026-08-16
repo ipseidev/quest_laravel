@@ -17,6 +17,8 @@ class LoginRequest extends FormRequest
             'email' => ['required', 'email'],
             'password' => ['required', 'string'],
             'deviceId' => ['required', 'uuid'],
+            'platform' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'appVersion' => ['sometimes', 'nullable', 'string', 'max:32'],
         ];
     }
 }

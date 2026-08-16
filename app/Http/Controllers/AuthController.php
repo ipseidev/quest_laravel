@@ -14,6 +14,7 @@ use App\Services\Auth\AppleTokenVerifier;
 use App\Services\Auth\GoogleTokenVerifier;
 use App\Services\Auth\InvalidAppleTokenException;
 use App\Services\Auth\InvalidGoogleTokenException;
+use App\Services\Devices\DeviceRecorder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -23,6 +24,25 @@ use Illuminate\Support\Facades\Log;
 
 class AuthController extends Controller
 {
+    public function __construct(private readonly DeviceRecorder $devices) {}
+
+    /**
+     * A fresh install identifies itself here before it ever syncs, so this is where
+     * the platform of a brand new account is learned. Recorded before the token is
+     * minted so the two facts land together even if the response never arrives.
+     */
+    private function recordDevice(
+        User $user,
+        RegisterRequest|LoginRequest|AppleAuthRequest|GoogleAuthRequest $request,
+    ): void {
+        $this->devices->record(
+            $user,
+            $request->validated('deviceId'),
+            $request->validated('platform'),
+            $request->validated('appVersion'),
+        );
+    }
+
     public function register(RegisterRequest $request): JsonResponse
     {
         if (User::query()->where('email', $request->validated('email'))->exists()) {
@@ -37,6 +57,8 @@ class AuthController extends Controller
             'email' => $request->validated('email'),
             'password' => Hash::make($request->validated('password')),
         ]);
+
+        $this->recordDevice($user, $request);
 
         $token = $user->createToken('quest-mobile')->plainTextToken;
 
@@ -56,6 +78,8 @@ class AuthController extends Controller
                 'message' => 'The provided credentials are incorrect.',
             ], 401);
         }
+
+        $this->recordDevice($user, $request);
 
         $token = $user->createToken('quest-mobile')->plainTextToken;
 
@@ -108,6 +132,8 @@ class AuthController extends Controller
             }
         }
 
+        $this->recordDevice($user, $request);
+
         $token = $user->createToken('quest-mobile')->plainTextToken;
 
         return response()->json([
@@ -151,6 +177,8 @@ class AuthController extends Controller
                 $user->forceFill(['email_verified_at' => now()])->save();
             }
         }
+
+        $this->recordDevice($user, $request);
 
         $token = $user->createToken('quest-mobile')->plainTextToken;
 

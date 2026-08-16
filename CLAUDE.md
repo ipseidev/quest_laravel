@@ -73,9 +73,30 @@ Title/html/description/name/relationship/note columns on `entries`, `quests`, `c
 
 `app/Console/Commands/PurgeExpiredCommand.php` (registered as `quest:purge-expired`, scheduled in `routes/console.php` daily at 03:00 UTC): hard-deletes soft-deleted content older than 30 days (CASCADE removes child rows), deletes the associated S3 binaries first, then purges junction tombstones older than 90 days. Account deletion bypasses this path entirely (rows cascade with the user), so `App\Jobs\DeleteUserBinaries` sweeps the bucket prefixes — every kind `BinaryUploadService` can write must be listed in both places or its files outlive the erasure request. Stats are logged via `Log::info('quest.retention.purge', ...)`.
 
+### Admin panel (`/admin`)
+
+A Filament v5 panel for marketing and product metrics. Four things about it are load-bearing:
+
+- **It authenticates on its own `admin` guard against a separate `admins` table**, never on `web`/`users`. Two reasons: no journal account can escalate into the panel, and — more subtly — `BelongsToCurrentUserScope` filters content queries by `Auth::id()` on the *default* guard, so a panel logged into `web` would narrow every aggregate to the operator's own journal and report numbers that are plausible and wrong. Create operators with `php artisan nacre:admin`; there is no registration screen.
+- **`App\Services\Admin\Metrics` holds every number and never touches Eloquent.** Query-builder statements cannot have a global scope applied, which makes the failure above unrepresentable rather than merely avoided. `UserResource` follows the same rule via subselects instead of `withCount()`. `MetricsTest` pins it by asserting the figures do not move when an app user is authenticated.
+- **Activity is read from `personal_access_tokens.last_used_at`, never from content timestamps.** Sync writes `entries.updated_at` verbatim from the client, so it reflects the device clock. Sanctum stamps `last_used_at` server-side.
+- **Sessions exist only on the panel's own middleware stack** (declared in `AdminPanelProvider`), not in the global `web` group, which stays cookie-free for the marketing site. `AdminPanelTest` fails if session middleware reappears in the `web` group. Two consequences that both produced silent failures once:
+  - **Livewire's update endpoint needs the session middleware explicitly.** Livewire registers `POST /livewire/update` on the `web` group, and every panel interaction — including the login submit — goes through it. On the gutted group it ran with no session, so the login succeeded, persisted nothing, and bounced back to the login screen with no error. `AdminPanelProvider::boot()` re-points the route at `SESSION_MIDDLEWARE`, shared with the panel so the two cannot drift.
+  - **`sessions.user_id` is a string, not a uuid.** It was uuid to match this schema's accounts, which was fine while nothing had a session. `admins.id` is a bigint and the database session driver writes `Auth::id()` there, so an operator hit a 500 on every page straight after logging in.
+
+  Both escaped the suite because `phpunit.xml` sets `SESSION_DRIVER=array` and `Livewire::test()` mounts components without traversing HTTP middleware. `AdminPanelTest` now pins each one directly.
+
+The panel shows counts, dates and settings only. Titles, bodies, quest and person names and quotes are encrypted at rest and decrypt transparently on read, so a careless column definition is all it would take to expose a journal — no code path in `app/Filament/` loads a content model, and none should.
+
+MRR needs `site.plus.products` to map RevenueCat product ids to `monthly`/`annual`. An unmapped id is reported on the dashboard rather than priced by guesswork. Note that an active entitlement is `subscription_product_id IS NOT NULL AND (expires_at IS NULL OR expires_at > now())` — a null expiry is a non-expiring purchase, not a missing date.
+
+### Device reporting
+
+`devices` records one row per (account, `deviceId`) with the platform and native app version the client reports. Before it existed nothing distinguished an iOS user from an Android one. `platform`/`appVersion` are optional on the auth and sync requests so binaries already on the stores keep working — those accounts show as `unknown` on the dashboard and are never folded into a platform. `App\Services\Devices\DeviceRecorder` is the only writer; it skips the write when nothing changed within a 15-minute window, because it rides on the hottest route in the API, and it swallows its own failures so telemetry can never break a sync.
+
 ### Tests
 
-All meaningful tests are feature tests under `tests/Feature/`, organized by domain (`AuthTest`, `SyncPushTest`, `SyncPullTest`, `UploadTest`, `IsolationTest`, `EncryptionTest`, `RateLimitTest`, `RetentionTest`, `CrossAccountTest`, `MalformedRequestTest`, `SchemaTest`). They map to the spec's §13 acceptance matrix — when adding behavior, find the corresponding section in `BACKEND_API_SPEC.md` and add the scenario to the matching test class.
+All meaningful tests are feature tests under `tests/Feature/`, organized by domain (`AuthTest`, `SyncPushTest`, `SyncPullTest`, `UploadTest`, `IsolationTest`, `EncryptionTest`, `RateLimitTest`, `RetentionTest`, `CrossAccountTest`, `MalformedRequestTest`, `SchemaTest`, `AdminPanelTest`, `MetricsTest`, `DeviceCaptureTest`). They map to the spec's §13 acceptance matrix — when adding behavior, find the corresponding section in `BACKEND_API_SPEC.md` and add the scenario to the matching test class.
 
 Uploads tests use `Storage::fake('s3')`. Don't mock at the service layer — the suite is designed to exercise real DB + filesystem behavior through HTTP.
 
@@ -83,6 +104,7 @@ Uploads tests use `Storage::fake('s3')`. Don't mock at the service layer — the
 
 - The default Laravel `HasUuids` trait generates UUID v7. Quest requires UUID v4 (the iOS client's regex assumes v4). `users.id` overrides this; new models that need server-generated IDs must do the same.
 - Sanctum `guard` is `[]` — Bearer-only, no session/SPA fallback. Don't add `web` middleware to API routes.
+- The `AuthenticationException` renderer in `bootstrap/app.php` returns JSON **only** for `api/*` and JSON-expecting requests, like the 404 and 400 renderers beside it. Without that guard the admin panel's redirect to its login screen is answered with a JSON 401 instead.
 - API Resources have `public static $wrap = null` — responses are not wrapped in `{data: ...}`. Match that on any new resource.
 - DB columns are `snake_case`; JSON payloads are `camelCase`. API Resources do the mapping. Don't add camelCase columns.
 - `/up` is the health endpoint at the root (outside `/api`), provided by Laravel via `bootstrap/app.php`'s `health: '/up'`.

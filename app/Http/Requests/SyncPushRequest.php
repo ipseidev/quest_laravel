@@ -15,6 +15,8 @@ class SyncPushRequest extends FormRequest
     {
         return [
             'deviceId' => ['required', 'uuid'],
+            'platform' => ['sometimes', 'nullable', 'string', 'max:16'],
+            'appVersion' => ['sometimes', 'nullable', 'string', 'max:32'],
             'changes' => ['present', 'array'],
             'changes.*' => ['array'],
             'changes.*.entityType' => ['required', 'in:entry,quest,character,quote,entry_quest,entry_character,entry_attachment,entry_audio,entry_video'],

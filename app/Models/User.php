@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Devices\DeviceRecorder;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
@@ -51,6 +52,18 @@ class User extends Authenticatable
     public function characters(): HasMany
     {
         return $this->hasMany(Character::class);
+    }
+
+    /**
+     * App installations behind this account. Written by
+     * {@see DeviceRecorder} and read only by the admin panel;
+     * nothing in the mobile API surfaces it.
+     *
+     * @return HasMany<Device, $this>
+     */
+    public function devices(): HasMany
+    {
+        return $this->hasMany(Device::class)->orderByDesc('last_seen_at');
     }
 
     /**

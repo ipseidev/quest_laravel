@@ -129,6 +129,25 @@ return [
         'monthly' => 6.99,
         'annual' => 44.99,
         'free_media_quota_mb' => (int) env('QUEST_FREE_MEDIA_QUOTA_MB', 500),
+
+        /*
+         * RevenueCat product identifiers, mapped to their billing period.
+         *
+         * `users.subscription_product_id` holds whatever string RevenueCat sends,
+         * and nothing in the codebase constrains it — so the admin panel cannot
+         * turn a subscriber into revenue without being told which products are
+         * monthly and which are yearly. Fill in the real identifiers from the
+         * RevenueCat dashboard (App Store and Play Store ids both live here; the
+         * same subscription has a different id on each store).
+         *
+         * An id that is not listed is NOT guessed at for revenue: the dashboard
+         * counts it separately and names it, so an unmapped product shows up as a
+         * gap to fix rather than quietly dragging MRR down.
+         */
+        'products' => [
+            // 'nacre_plus_monthly' => 'monthly',
+            // 'nacre_plus_annual' => 'annual',
+        ],
     ],
 
     /*
